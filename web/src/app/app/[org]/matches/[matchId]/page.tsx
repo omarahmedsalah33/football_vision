@@ -10,6 +10,7 @@ import { getDb } from "@/server/db/client";
 import { AppError, uuidParam } from "@/server/http/errors";
 import { getMatch, type MatchDetail } from "@/server/matches/service";
 import { AnalysisActions, LiveRefresh } from "./analysis-controls";
+import { DeleteMatch } from "./delete-match";
 import { Uploader } from "./uploader";
 import { AnalysisResults } from "./results";
 
@@ -213,6 +214,8 @@ async function MatchDetailView({ params }: { params: PageProps<"/app/[org]/match
       </div>
 
       {analysisJob?.status === "succeeded" && <AnalysisResults orgSlug={actor.orgSlug} matchId={match.id} jobId={analysisJob.id} />}
+
+      {can(actor.role, "match.delete") && <DeleteMatch orgId={actor.orgId} orgSlug={actor.orgSlug} matchId={match.id} title={match.title} />}
     </article>
   );
 }

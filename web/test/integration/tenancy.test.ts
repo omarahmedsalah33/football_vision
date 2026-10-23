@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { memberships, organizations, teams, videos } from "../../src/server/db/schema";
+import { getUsage } from "../../src/server/billing/entitlements";
+import { analysisJobs, memberships, organizations, teams, videos } from "../../src/server/db/schema";
 import { cancelAnalysis, enqueueAnalysis } from "../../src/server/jobs/service";
 import { createMatch, deleteMatch, getMatch, listMatches } from "../../src/server/matches/service";
 import { ensureUser, listMyOrgs, resolveActor } from "../../src/server/orgs/service";
@@ -123,14 +124,46 @@ describe("role enforcement on the server", () => {
     }
   });
 
-  it("analysts cannot delete matches; coaches can", async () => {
+  it("only owners and admins can delete matches", async () => {
     const owner = await makeActor(db, "owner");
+    const admin = await makeActor(db, "admin", owner.orgId);
     const analyst = await makeActor(db, "analyst", owner.orgId);
     const coach = await makeActor(db, "coach", owner.orgId);
-    const match = await createMatch(db, analyst, { title: "League" });
-    await expect(deleteMatch(db, analyst, match.id)).rejects.toThrowError(FORBIDDEN);
-    await deleteMatch(db, coach, match.id);
-    await expect(getMatch(db, owner, match.id)).rejects.toThrowError(NOT_FOUND);
+    const first = await createMatch(db, analyst, { title: "League" });
+    await expect(deleteMatch(db, analyst, first.id)).rejects.toThrowError(FORBIDDEN);
+    await expect(deleteMatch(db, coach, first.id)).rejects.toThrowError(FORBIDDEN);
+    await deleteMatch(db, admin, first.id);
+    await expect(getMatch(db, owner, first.id)).rejects.toThrowError(NOT_FOUND);
+    // Deleting twice is a 404, not a second audit event.
+    await expect(deleteMatch(db, owner, first.id)).rejects.toThrowError(NOT_FOUND);
+
+    const second = await createMatch(db, coach, { title: "Cup" });
+    await deleteMatch(db, owner, second.id);
+    await expect(getMatch(db, coach, second.id)).rejects.toThrowError(NOT_FOUND);
+  });
+
+  it("deleting a match cancels its queued analysis and gives the allowance back", async () => {
+    const owner = await makeActor(db, "owner");
+    const { match } = await matchWithUploadedVideo(owner);
+    const job = await enqueueAnalysis(db, owner, match.id);
+    const period = job.usagePeriodStart!;
+    expect((await getUsage(db, owner.orgId, period)).reserved).toBe(1);
+
+    await deleteMatch(db, owner, match.id);
+    const [row] = await db.select().from(analysisJobs).where(eq(analysisJobs.id, job.id));
+    expect(row).toMatchObject({ status: "cancelled", usageSettled: true });
+    expect(await getUsage(db, owner.orgId, period)).toEqual({ used: 0, reserved: 0 });
+  });
+
+  it("deleting a match asks its running analysis to stop", async () => {
+    const owner = await makeActor(db, "owner");
+    const { match } = await matchWithUploadedVideo(owner);
+    const job = await enqueueAnalysis(db, owner, match.id);
+    await db.update(analysisJobs).set({ status: "running", leaseOwner: "worker-test" }).where(eq(analysisJobs.id, job.id));
+
+    await deleteMatch(db, owner, match.id);
+    const [row] = await db.select().from(analysisJobs).where(eq(analysisJobs.id, job.id));
+    expect(row).toMatchObject({ status: "running", cancelRequested: true });
   });
 });
 

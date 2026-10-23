@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { assertCan, type Actor } from "../authz/permissions";
 import { recordAudit } from "../audit";
+import { releaseAnalysis } from "../billing/entitlements";
 import type { DbOrTx } from "../db/client";
 import { analysisJobs, calibrations, matches, teams, videos } from "../db/schema";
 import { invalidInput, notFound } from "../http/errors";
@@ -221,6 +222,8 @@ export type MatchDetail = Awaited<ReturnType<typeof getMatch>>;
 /**
  * Soft delete: the match disappears for users immediately. The worker's maintenance sweep purges
  * its footage and rows after a grace period (see worker/fa_worker/maintenance.py).
+ * Its jobs stop too: queued jobs are cancelled (releasing any reserved analysis) and running jobs
+ * are asked to stop at the next stage boundary.
  */
 export async function deleteMatch(db: DbOrTx, actor: Actor, matchId: string) {
   assertCan(actor, "match.delete");
@@ -231,6 +234,24 @@ export async function deleteMatch(db: DbOrTx, actor: Actor, matchId: string) {
       .where(and(eq(matches.id, matchId), eq(matches.orgId, actor.orgId), isNull(matches.deletedAt)))
       .returning({ id: matches.id, title: matches.title });
     if (updated.length === 0) throw notFound("Match");
+
+    const active = await tx
+      .select()
+      .from(analysisJobs)
+      .where(and(eq(analysisJobs.matchId, matchId), eq(analysisJobs.orgId, actor.orgId), inArray(analysisJobs.status, ["queued", "running"])))
+      .for("update");
+    for (const job of active) {
+      if (job.status === "queued") {
+        await tx
+          .update(analysisJobs)
+          .set({ status: "cancelled", finishedAt: new Date(), usageSettled: true })
+          .where(eq(analysisJobs.id, job.id));
+        if (!job.usageSettled && job.usagePeriodStart) await releaseAnalysis(tx, job.orgId, job.usagePeriodStart);
+      } else {
+        await tx.update(analysisJobs).set({ cancelRequested: true }).where(eq(analysisJobs.id, job.id));
+      }
+    }
+
     await recordAudit(tx, { orgId: actor.orgId, actorUserId: actor.userId, action: "match.deleted", targetType: "match", targetId: matchId });
   });
 }

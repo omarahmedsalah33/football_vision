@@ -54,7 +54,8 @@ const MATRIX: Record<Role, ReadonlySet<Permission>> = {
     "org.delete",
   ]),
   admin: new Set<Permission>([...ANALYST, "match.delete", "org.manage", "members.manage", "billing.manage"]),
-  coach: new Set<Permission>([...ANALYST, "match.delete"]),
+  // Deleting a match destroys footage and results for the whole workspace: owners and admins only.
+  coach: new Set<Permission>(ANALYST),
   analyst: new Set<Permission>(ANALYST),
   scout: new Set<Permission>(READ),
   // TODO(phase 4): restrict players to matches of their own teams.

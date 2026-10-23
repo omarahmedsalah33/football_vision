@@ -4,7 +4,7 @@ import { assertCan, can, ROLES, type Permission, type Role } from "./permissions
 const ALLOWED: Record<Role, Permission[]> = {
   owner: ["org.delete", "billing.manage", "members.manage", "match.delete", "video.upload", "match.read"],
   admin: ["billing.manage", "members.manage", "match.delete", "video.upload", "match.read"],
-  coach: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share"],
+  coach: ["match.create", "video.upload", "analysis.run", "report.share"],
   analyst: ["match.create", "video.upload", "analysis.run", "report.share"],
   scout: ["match.read", "report.read"],
   player: ["match.read", "report.read"],
@@ -13,7 +13,7 @@ const ALLOWED: Record<Role, Permission[]> = {
 const DENIED: Record<Role, Permission[]> = {
   owner: [],
   admin: ["org.delete"],
-  coach: ["org.manage", "members.manage", "billing.manage", "org.delete"],
+  coach: ["match.delete", "org.manage", "members.manage", "billing.manage", "org.delete"],
   analyst: ["match.delete", "members.manage", "billing.manage", "org.delete"],
   scout: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "billing.manage"],
   player: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "members.manage"],

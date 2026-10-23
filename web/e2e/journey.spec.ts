@@ -155,3 +155,38 @@ test("coach signs in, uploads footage, calibrates the pitch and gets an analysis
 
   expect(errors).toEqual([]);
 });
+
+test("an owner deletes a match after confirming", async ({ page }) => {
+  const errors = trackBrowserErrors(page);
+  await setupClerkTestingToken({ page });
+  await page.goto("/");
+  await clerk.signIn({ page, emailAddress: E2E_EMAIL });
+
+  const title = `E2E Delete me ${Date.now()}`;
+  await page.goto("/app");
+  await page.getByRole("link", { name: "New match", exact: true }).click();
+  await page.getByLabel("Match title").fill(title);
+  await page.getByRole("button", { name: "Create match" }).click();
+  const matchPage = page.getByRole("article");
+  await expect(matchPage.getByRole("heading", { name: title })).toBeVisible();
+  const matchUrl = page.url();
+
+  // Cancelling the confirmation keeps the match.
+  await matchPage.getByRole("button", { name: "Delete match" }).click();
+  await matchPage.getByRole("button", { name: "Cancel" }).click();
+  await expect(matchPage.getByRole("heading", { name: title })).toBeVisible();
+
+  await matchPage.getByRole("button", { name: "Delete match" }).click();
+  await expect(matchPage.getByRole("alertdialog")).toContainText(title);
+  await matchPage.getByRole("button", { name: "Yes, delete match" }).click();
+  await expect(page).toHaveURL(/\/app\/[^/]+\/matches$/);
+  await expect(page.getByRole("link", { name: new RegExp(title) })).toHaveCount(0);
+
+  // The old address no longer shows the match. (The page streams, so the 404 is rendered in the
+  // body after a 200 status line has already been sent.)
+  await page.goto(matchUrl);
+  await expect(page.getByText("This page could not be found.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: title })).toHaveCount(0);
+
+  expect(errors).toEqual([]);
+});
