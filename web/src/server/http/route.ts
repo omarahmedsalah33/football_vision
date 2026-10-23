@@ -97,8 +97,44 @@ export function route<P, S extends ZodType | undefined = undefined>(
         ? options.body.parse(await readJson(req, options.maxBodyBytes ?? DEFAULT_MAX_BODY))
         : undefined;
       const result = await handler({ req, params, body: body as never, user, requestId });
-      if (result === undefined) return new NextResponse(null, { status: 204, headers: { "Cache-Control": "no-store" } });
-      return NextResponse.json(result, { status: options.status ?? 200, headers: { "Cache-Control": "no-store" } });
+      return respond(result, options.status);
+    } catch (err) {
+      return errorResponse(err, requestId);
+    }
+  };
+}
+
+function respond(result: unknown, status = 200) {
+  if (result === undefined) return new NextResponse(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(result, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * Best-effort client IP for abuse protection. Only trustworthy behind a proxy that overwrites
+ * X-Forwarded-For (any production host does); never used for authorization.
+ */
+export function clientIp(req: NextRequest): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
+}
+
+type PublicHandler<B> = (args: { req: NextRequest; body: B; requestId: string }) => Promise<unknown>;
+
+/**
+ * Unauthenticated variant for public forms. Same origin check, body limits, validation and safe
+ * errors; callers must apply their own rate limit (there is no user to key it on).
+ */
+export function publicRoute<S extends ZodType | undefined = undefined>(
+  options: Options<S>,
+  handler: PublicHandler<S extends ZodType ? z.infer<S> : undefined>,
+) {
+  return async (req: NextRequest) => {
+    const requestId = randomUUID();
+    try {
+      if (!SAFE_METHODS.has(req.method)) assertSameOrigin(req);
+      const body = options.body
+        ? options.body.parse(await readJson(req, options.maxBodyBytes ?? DEFAULT_MAX_BODY))
+        : undefined;
+      return respond(await handler({ req, body: body as never, requestId }), options.status);
     } catch (err) {
       return errorResponse(err, requestId);
     }

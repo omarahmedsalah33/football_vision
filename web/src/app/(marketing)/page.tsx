@@ -1,8 +1,7 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { SampleReport } from "@/components/marketing/sample-report";
 import { VisionHero } from "@/components/marketing/vision-hero";
-import { Badge, ButtonLink, Card, CornerMarks, Logo } from "@/components/ui";
+import { Badge, ButtonLink, Card, CornerMarks } from "@/components/ui";
 
 const TAGLINE = ["Train", "Measure", "Perform", "Discover"];
 
@@ -112,34 +111,7 @@ function SectionHeading({ eyebrow, title, children }: { eyebrow: string; title: 
 
 export default function Home() {
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="sticky top-0 z-30 border-b border-border/70 bg-bg/85 backdrop-blur">
-        <nav aria-label="Main" className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3.5 sm:px-6">
-          <Link href="/" aria-label="Football Vision home">
-            <Logo />
-          </Link>
-          <div className="hidden items-center gap-1 lg:flex">
-            {[
-              ["#how", "How it works"],
-              ["#evidence", "Evidence"],
-              ["#who", "Who it's for"],
-              ["#privacy", "Privacy"],
-            ].map(([href, label]) => (
-              <a key={href} href={href} className="rounded-md px-3 py-2 text-sm text-muted hover:text-fg">
-                {label}
-              </a>
-            ))}
-          </div>
-          <div className="flex items-center gap-1 sm:gap-2">
-            <ButtonLink href="/sign-in" variant="ghost">
-              Sign in
-            </ButtonLink>
-            <ButtonLink href="/sign-up">Get started</ButtonLink>
-          </div>
-        </nav>
-      </header>
-
-      <main className="flex-1">
+    <>
         {/* Hero */}
         <section className="fv-stripes relative overflow-hidden">
           <div
@@ -286,6 +258,9 @@ export default function Home() {
                 </li>
               ))}
             </ul>
+            <ButtonLink href="/pricing" variant="secondary" className="mt-8">
+              Compare plans and limits
+            </ButtonLink>
           </div>
         </section>
 
@@ -332,19 +307,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-      </main>
-
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div>
-            <Logo />
-            <p className="mt-2 font-data text-xs uppercase tracking-[0.2em] text-muted">
-              Train. Measure. Perform. Discover.
-            </p>
-          </div>
-          <p className="text-sm text-muted">Built in Egypt. Early access software.</p>
-        </div>
-      </footer>
-    </div>
+    </>
   );
 }

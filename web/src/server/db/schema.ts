@@ -263,3 +263,21 @@ export const rateLimitBuckets = pgTable("rate_limit_buckets", {
   windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
   count: integer("count").notNull(),
 });
+
+export const contactTopic = pgEnum("contact_topic", ["sales", "support", "partnership", "privacy", "other"]);
+
+// Messages from the public contact form. Deliberately no IP address or user agent (minimisation).
+export const contactMessages = pgTable(
+  "contact_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    organization: text("organization"),
+    topic: contactTopic("topic").notNull(),
+    message: text("message").notNull(),
+    handledAt: timestamp("handled_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("contact_messages_created_idx").on(t.createdAt)],
+);

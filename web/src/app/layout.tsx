@@ -15,6 +15,8 @@ const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 const jetbrains = JetBrains_Mono({ variable: "--font-jetbrains", subsets: ["latin"] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.APP_ORIGIN ?? "http://localhost:3000"),
+  openGraph: { siteName: "Football Vision", type: "website", locale: "en" },
   title: { default: "Football Vision: Train. Measure. Perform. Discover.", template: "%s · Football Vision" },
   description:
     "Professional-grade football analysis, made accessible to every team, academy and player. Upload match footage and get insight you can check against the video.",

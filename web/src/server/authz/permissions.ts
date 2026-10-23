@@ -17,6 +17,22 @@ export type Permission =
   | "report.read"
   | "report.share";
 
+/** Human-readable names, used by the public docs so they always mirror the enforced matrix. */
+export const PERMISSION_LABELS: Record<Permission, string> = {
+  "match.read": "View matches",
+  "report.read": "View reports",
+  "match.create": "Create matches",
+  "match.update": "Edit matches",
+  "video.upload": "Upload video",
+  "analysis.run": "Start or cancel analysis",
+  "report.share": "Share reports",
+  "match.delete": "Delete matches",
+  "members.manage": "Manage members",
+  "org.manage": "Workspace settings",
+  "billing.manage": "Billing",
+  "org.delete": "Delete workspace",
+};
+
 const READ: Permission[] = ["match.read", "report.read"];
 const ANALYST: Permission[] = [
   ...READ,

@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Client } from "pg";
+import { trackBrowserErrors } from "./browser-errors";
 import { E2E_EMAIL, FIXTURE_VIDEO, WORKER_PYTHON } from "./global-setup";
 
 const SHOTS = resolve(__dirname, "../test-results/screenshots");
@@ -21,18 +22,8 @@ async function jobStatus(matchId: string): Promise<string | undefined> {
   }
 }
 
-/** Fails the test on any browser console error, including CSP violations. */
-function collectConsoleErrors(page: Page) {
-  const errors: string[] = [];
-  page.on("console", (msg) => {
-    if (msg.type() === "error") errors.push(msg.text());
-  });
-  page.on("pageerror", (err) => errors.push(err.message));
-  return errors;
-}
-
 test("landing page renders and labels sample data honestly", async ({ page }) => {
-  const errors = collectConsoleErrors(page);
+  const errors = trackBrowserErrors(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Professional-grade analysis");
   await expect(page.getByText("Illustrative data, not from a real match")).toBeVisible();
@@ -73,7 +64,7 @@ test("anonymous visitors are sent to sign-in and cannot use the API", async ({ p
 });
 
 test("coach signs in, creates a match, uploads footage and sees it processed", async ({ page }) => {
-  const errors = collectConsoleErrors(page);
+  const errors = trackBrowserErrors(page);
   await setupClerkTestingToken({ page });
   await page.goto("/");
   await clerk.signIn({ page, emailAddress: E2E_EMAIL });
