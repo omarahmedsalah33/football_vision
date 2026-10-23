@@ -151,8 +151,9 @@ training data), jersey-number recognition, broadcast-footage support, passing ne
 Postgres RLS, SSO for enterprise.
 
 **Not claimable without new models/data:** passes/tackles/shots/xG from video, real-world player
-identity, sprint speeds from uncalibrated footage. SoccerNet data is research-licensed — not
-usable for a commercial model without a separate agreement.
+identity, sprint speeds from uncalibrated footage. SoccerNet data is research-licensed, so it is
+not usable for a commercial model without a separate agreement. SoccerTrack v2 (CC BY 4.0,
+fixed full-pitch panoramic cameras, metric ground truth) is the chosen evaluation set.
 
 ## G. Phases and acceptance criteria
 

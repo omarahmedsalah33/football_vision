@@ -64,5 +64,10 @@ used = 1, reserved = 0.
 ## Manual configuration required from you
 
 - Decide when to claim the temporary Clerk dev app (`npx clerk auth login`) or create your own.
-- Before Phase 3: provide (or authorize recording of) fixed-camera footage you have rights to use
-  for evaluation.
+- Evaluation data for Phase 3: **SoccerTrack v2** (10 full university matches, fixed panoramic 4K
+  cameras covering the whole pitch, per-frame player positions in pitch metres, pitch keypoints and
+  camera calibration). Licence CC BY 4.0, which the authors state permits commercial use with
+  attribution; players gave informed consent and no names are included. Download is gated: log in
+  at huggingface.co/datasets/atomscott/soccertrack-v2, accept the access conditions, and create a
+  read token so the worker tooling can fetch one match (~14 GB) for the evaluation set.
+  Attribution required: cite the SoccerTrack v2 paper (arXiv 2508.01802).
