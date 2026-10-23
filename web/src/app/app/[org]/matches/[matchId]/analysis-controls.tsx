@@ -22,12 +22,14 @@ export function AnalysisActions({
   jobId,
   canStart,
   canCancel,
+  startLabel = "Start analysis",
 }: {
   orgId: string;
   matchId: string;
   jobId?: string;
   canStart: boolean;
   canCancel: boolean;
+  startLabel?: string;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -51,12 +53,12 @@ export function AnalysisActions({
     <div className="flex flex-wrap items-center gap-3">
       {canStart && (
         <Button disabled={pending} onClick={() => run(`/api/orgs/${orgId}/matches/${matchId}/analysis`)}>
-          Start analysis
+          {startLabel}
         </Button>
       )}
       {canCancel && jobId && (
         <Button variant="danger" disabled={pending} onClick={() => run(`/api/orgs/${orgId}/jobs/${jobId}/cancel`)}>
-          Cancel analysis
+          Cancel
         </Button>
       )}
       {error && (

@@ -63,8 +63,9 @@ def period() -> date:
     return date(today.year, today.month, 1)
 
 
-def make_job(conn, *, size_bytes: int = 1000, max_duration: int = 7800, max_attempts: int = 3, **job_fields) -> dict:
-    """Inserts org → user → match → uploaded video → queued job with a reserved usage unit."""
+def make_job(conn, *, kind: str = "analyze", size_bytes: int = 1000, max_duration: int = 7800, max_attempts: int = 3, config: dict | None = None, video_status: str = "uploaded", **job_fields) -> dict:
+    """Inserts org → match → video → queued job. Analyze jobs hold a reserved usage unit; prepare
+    jobs are free and reserve nothing."""
     with conn.transaction():
         org = conn.execute(
             "insert into organizations (name, slug, kind) values ('Club', %s, 'club') returning id",
@@ -76,19 +77,21 @@ def make_job(conn, *, size_bytes: int = 1000, max_duration: int = 7800, max_atte
         video = conn.execute(
             """insert into videos (org_id, match_id, storage_key, declared_size_bytes, size_bytes, part_size_bytes,
                                    part_count, status)
-               values (%s, %s, %s, %s, %s, %s, 1, 'uploaded') returning id""",
-            (org, match, f"orgs/{org}/videos/{uuid.uuid4()}", size_bytes, size_bytes, size_bytes),
+               values (%s, %s, %s, %s, %s, %s, 1, %s) returning id""",
+            (org, match, f"orgs/{org}/matches/{match}/videos/{uuid.uuid4()}/source", size_bytes, size_bytes, size_bytes, video_status),
         ).fetchone()["id"]
-        conn.execute(
-            """insert into usage_periods (org_id, period_start, analyses_reserved) values (%s, %s, 1)""",
-            (org, period()),
-        )
+        analyze = kind == "analyze"
+        if analyze:
+            conn.execute(
+                """insert into usage_periods (org_id, period_start, analyses_reserved) values (%s, %s, 1)""",
+                (org, period()),
+            )
         job = conn.execute(
-            """insert into analysis_jobs (org_id, match_id, video_id, idempotency_key, usage_period_start, config,
-                                          max_attempts)
-               values (%s, %s, %s, %s, %s, %s, %s) returning *""",
-            (org, match, video, f"video:{video}:run:1", period(), Jsonb({"maxDurationSeconds": max_duration}),
-             max_attempts),
+            """insert into analysis_jobs (org_id, match_id, video_id, kind, idempotency_key, usage_period_start,
+                                          usage_settled, config, max_attempts)
+               values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning *""",
+            (org, match, video, kind, f"video:{video}:{kind}:1", period() if analyze else None, not analyze,
+             Jsonb({"maxDurationSeconds": max_duration, **(config or {})}), max_attempts),
         ).fetchone()
         if job_fields:
             sets = ", ".join(f"{k} = %s" for k in job_fields)
@@ -103,7 +106,7 @@ def usage(conn, org_id) -> tuple[int, int]:
         "select analyses_used, analyses_reserved from usage_periods where org_id = %s and period_start = %s",
         (org_id, period()),
     ).fetchone()
-    return row["analyses_used"], row["analyses_reserved"]
+    return (row["analyses_used"], row["analyses_reserved"]) if row else (0, 0)
 
 
 def job_row(conn, job_id) -> dict:

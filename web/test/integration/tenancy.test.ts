@@ -7,7 +7,7 @@ import { createMatch, deleteMatch, getMatch, listMatches } from "../../src/serve
 import { ensureUser, listMyOrgs, resolveActor } from "../../src/server/orgs/service";
 import type { ObjectStorage } from "../../src/server/storage/s3";
 import { abortUpload, completeUpload, presignParts, startUpload } from "../../src/server/uploads/service";
-import { makeActor, makeUser, testDb } from "../helpers";
+import { calibrate, makeActor, makeUser, testDb } from "../helpers";
 
 const db = testDb();
 
@@ -20,6 +20,7 @@ const storage: ObjectStorage = {
   headObjectSize: async () => null,
   readRange: async () => new Uint8Array(),
   deleteObject: async () => {},
+  presignGet: async (key) => `https://storage.test/${key}?signed`,
 };
 
 const NOT_FOUND = expect.objectContaining({ status: 404 });
@@ -32,7 +33,8 @@ async function matchWithUploadedVideo(actor: Awaited<ReturnType<typeof makeActor
     sizeBytes: 1000,
     contentType: "video/mp4",
   });
-  await db.update(videos).set({ status: "uploaded", sizeBytes: 1000 }).where(eq(videos.id, up.videoId));
+  await db.update(videos).set({ status: "validated", sizeBytes: 1000, width: 1920, height: 1080 }).where(eq(videos.id, up.videoId));
+  await calibrate(db, actor, match.id, up.videoId);
   return { match, videoId: up.videoId };
 }
 
@@ -58,7 +60,7 @@ describe("cross-tenant isolation", () => {
     await expect(cancelAnalysis(db, b, job.id)).rejects.toThrowError(NOT_FOUND);
 
     // A still sees everything intact.
-    expect((await getMatch(db, a, match.id)).job?.status).toBe("queued");
+    expect((await getMatch(db, a, match.id)).analysisJob?.status).toBe("queued");
   });
 
   it("forging the orgId in an Actor does not help without a membership", async () => {

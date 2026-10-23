@@ -22,6 +22,8 @@ export interface ObjectStorage {
   headObjectSize(key: string): Promise<number | null>;
   readRange(key: string, start: number, endInclusive: number): Promise<Uint8Array>;
   deleteObject(key: string): Promise<void>;
+  /** Short-lived read URL; the response is served with the given content type, inline. */
+  presignGet(key: string, contentType: string, ttlSeconds?: number): Promise<string>;
 }
 
 type S3Config = {
@@ -111,6 +113,19 @@ export class S3Storage implements ObjectStorage {
     );
     if (!out.Body) return new Uint8Array();
     return out.Body.transformToByteArray();
+  }
+
+  presignGet(key: string, contentType: string, ttlSeconds = PRESIGN_TTL_SECONDS): Promise<string> {
+    return getSignedUrl(
+      this.presignClient,
+      new GetObjectCommand({
+        Bucket: this.cfg.bucket,
+        Key: key,
+        ResponseContentType: contentType,
+        ResponseContentDisposition: "inline",
+      }),
+      { expiresIn: ttlSeconds },
+    );
   }
 
   async deleteObject(key: string) {

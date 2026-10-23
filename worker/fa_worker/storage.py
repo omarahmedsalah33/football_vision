@@ -15,6 +15,7 @@ CHUNK = 8 * 1024 * 1024
 
 class Storage(Protocol):
     def download(self, key: str, dest: Path, expected_size: int) -> Path: ...
+    def put_file(self, key: str, path: Path, content_type: str) -> None: ...
 
 
 class S3Storage:
@@ -68,3 +69,6 @@ class S3Storage:
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") != "NoSuchUpload":
                 raise
+
+    def put_file(self, key: str, path: Path, content_type: str) -> None:
+        self._client.upload_file(str(path), self._bucket, key, ExtraArgs={"ContentType": content_type})

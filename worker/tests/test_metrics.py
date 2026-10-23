@@ -1,0 +1,110 @@
+import numpy as np
+import pytest
+
+from fa_worker.analysis.geometry import foot_points, on_pitch, project
+from fa_worker.analysis.metrics import frame_shape, team_shape_windows, track_summary
+from fa_worker.analysis.teams import _rgb_to_lab, assign_teams, shirt_colour
+
+L, W = 105.0, 68.0
+
+
+def test_distance_of_a_steady_run_is_measured_correctly():
+    # 2 m/s along x for 10 s, sampled at 4 fps.
+    samples = [(i * 0.25, 10 + 2 * i * 0.25, 30.0) for i in range(41)]
+    s = track_summary(samples, 0.25, L, W)
+    assert s["distance_m"] == pytest.approx(20.0, abs=0.3)
+    assert s["coverage"] == pytest.approx(1.0)
+    assert s["distance_time_share"] == pytest.approx(1.0)
+
+
+def test_impossible_jumps_are_excluded_not_counted():
+    # Same run, but an identity switch teleports the track 40 m for one frame.
+    samples = [(i * 0.25, 10 + 2 * i * 0.25, 30.0) for i in range(41)]
+    samples[20] = (5.0, 60.0, 30.0)
+    s = track_summary(samples, 0.25, L, W)
+    assert s["distance_m"] < 21.0, "the teleport must not add ~80 m of fake running"
+    assert s["distance_time_share"] < 1.0, "the excluded time is reported"
+
+
+def test_gaps_lower_coverage_and_heatmap_counts_cells():
+    samples = [(0.0, 2.0, 2.0), (0.25, 2.5, 2.5), (5.0, 52.0, 34.0)]
+    s = track_summary(samples, 0.25, L, W)
+    assert s["coverage"] < 0.2
+    grid = np.array(s["heatmap"])
+    assert grid.shape == (14, 21)
+    assert grid[0, 0] == 2 and grid[6, 10] == 1 and grid.sum() == 3
+
+
+def formation(defends_left: bool) -> np.ndarray:
+    """A 1-4-3-3 with a goalkeeper, in pitch metres."""
+    gk = [(5, 34)]
+    defs = [(20, 10), (18, 26), (18, 42), (20, 58)]
+    mids = [(38, 20), (35, 34), (38, 48)]
+    fwds = [(55, 14), (58, 34), (55, 54)]
+    pts = np.array(gk + defs + mids + fwds, dtype=float)
+    if not defends_left:
+        pts[:, 0] = L - pts[:, 0]
+    return pts
+
+
+def test_team_shape_excludes_the_goalkeeper_and_measures_lines():
+    s = frame_shape(formation(True), defends_left=True, length=L)
+    assert s["width"] == pytest.approx(58 - 10)
+    assert s["depth"] == pytest.approx(58 - 18)  # deepest outfield (18) to highest (58), keeper excluded
+    assert s["line_height"] == pytest.approx((18 + 18 + 20) / 3)
+    assert s["players"] == 11
+    mirrored = frame_shape(formation(False), defends_left=False, length=L)
+    assert mirrored["line_height"] == pytest.approx(s["line_height"]), "same shape from the other end"
+
+
+def test_windows_need_enough_players_otherwise_insufficient():
+    full = {"a": formation(True), "b": formation(False)}
+    thin = {"a": formation(True)[:5], "b": formation(False)}
+    frames = [(t * 0.25, full) for t in range(40)] + [(10 + t * 0.25, thin) for t in range(40)]
+    windows = team_shape_windows(frames, L, window_s=10)
+    assert len(windows) == 2
+    assert windows[0]["a"]["width"] == pytest.approx(48)
+    assert windows[0]["b"] is not None
+    assert windows[1]["a"] is None, "5 visible players is not evidence of a team shape"
+    assert windows[1]["b"] is not None
+
+
+def test_projection_and_pitch_filter():
+    H = np.array([[0.05, 0, 0], [0, 0.05, 0], [0, 0, 1.0]])
+    feet = foot_points(np.array([[100, 100, 140, 400], [2000, 0, 2040, 1800]], dtype=float))
+    pts = project(H, feet)
+    assert pts[0] == pytest.approx([6.0, 20.0])
+    assert list(on_pitch(pts, L, W)) == [True, False]
+
+
+def lab(rgb):
+    return _rgb_to_lab(np.array([rgb], dtype=float))[0]
+
+
+def test_teams_split_by_shirt_colour_and_referee_is_other():
+    red, blue, yellow = lab([200, 30, 30]), lab([30, 50, 200]), lab([240, 230, 40])
+    rng = np.random.default_rng(1)
+    samples = {}
+    for i in range(10):
+        samples[i] = [red + rng.normal(0, 2, 3) for _ in range(5)]
+        samples[100 + i] = [blue + rng.normal(0, 2, 3) for _ in range(5)]
+    samples[999] = [yellow + rng.normal(0, 2, 3) for _ in range(5)]
+    teams, quality = assign_teams(samples)
+    reds = {teams[i] for i in range(10)}
+    blues = {teams[100 + i] for i in range(10)}
+    assert len(reds) == 1 and len(blues) == 1 and reds != blues and None not in reds | blues
+    assert teams[999] is None, "a third colour (referee) must not be forced into a team"
+    assert quality["separation"] > 50
+
+
+def test_too_few_samples_means_no_team():
+    teams, _ = assign_teams({1: [lab([200, 0, 0])], 2: [lab([0, 0, 200])]})
+    assert teams == {1: None, 2: None}
+
+
+def test_shirt_colour_ignores_grass():
+    img = np.zeros((100, 60, 3), dtype=np.uint8)
+    img[:, :] = [40, 140, 50]  # grass
+    img[15:50, 20:40] = [200, 30, 30]  # red shirt on the torso
+    c = shirt_colour(img, np.array([10, 0, 50, 100]))
+    assert np.linalg.norm(c - lab([200, 30, 30])) < 5

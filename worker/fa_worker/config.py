@@ -40,6 +40,11 @@ class Settings:
     # Hard ceiling for the isolated probe/decoding subprocess.
     probe_timeout_seconds: int = 120
     worker_id: str = field(default_factory=lambda: f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}")
+    analysis_sample_fps: float = 4.0
+    detector_size: str = "medium"
+
+    def detector_config(self) -> dict:
+        return {"kind": "rfdetr", "size": self.detector_size}
 
     @staticmethod
     def from_env() -> Settings:
@@ -53,4 +58,6 @@ class Settings:
             work_dir=Path(os.environ.get("WORKER_WORK_DIR", ".cache/jobs")),
             lease_seconds=int(os.environ.get("WORKER_LEASE_SECONDS", "60")),
             poll_seconds=float(os.environ.get("WORKER_POLL_SECONDS", "2")),
+            analysis_sample_fps=float(os.environ.get("WORKER_SAMPLE_FPS", "4")),
+            detector_size=os.environ.get("WORKER_DETECTOR_SIZE", "medium"),
         )

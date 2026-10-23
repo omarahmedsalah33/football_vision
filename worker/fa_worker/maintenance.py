@@ -64,8 +64,14 @@ def abort_stale_uploads(conn, storage: Purger, report: SweepReport) -> None:
             report.errors.append(f"abort {r['id']}: {type(exc).__name__}")
 
 
+def _footage_keys(video: dict) -> list[str]:
+    """The source video and its reference frames (frames show players, so they are footage too)."""
+    return [video["storage_key"], *(f["key"] for f in (video.get("frames") or []) if f.get("key"))]
+
+
 def _purge_video_object(conn, storage: Purger, video: dict) -> None:
-    storage.delete_object(video["storage_key"])
+    for key in _footage_keys(video):
+        storage.delete_object(key)
     with conn.transaction():
         conn.execute("update videos set status = 'purged' where id = %s", (video["id"],))
 
@@ -73,7 +79,7 @@ def _purge_video_object(conn, storage: Purger, video: dict) -> None:
 def purge_expired_footage(conn, storage: Purger, report: SweepReport) -> None:
     rows = _fetch(
         conn,
-        """select v.id, v.storage_key from videos v
+        """select v.id, v.storage_key, v.frames from videos v
             where v.delete_after < now() and v.status in ('uploaded', 'validated')
               and not exists (select 1 from analysis_jobs j
                               where j.video_id = v.id and j.status in ('queued', 'running'))
@@ -88,15 +94,19 @@ def purge_expired_footage(conn, storage: Purger, report: SweepReport) -> None:
             report.errors.append(f"purge video {r['id']}: {type(exc).__name__}")
 
 
-def _delete_stored_videos(conn, storage: Purger, where_sql: str, param) -> None:
+def _delete_stored_objects(conn, storage: Purger, where_sql: str, param) -> None:
+    """Deletes every stored object of a match or organisation: footage, frames and analysis tracks."""
     for v in _fetch(
         conn,
-        f"select id, storage_key, status, multipart_upload_id from videos where {where_sql} and status not in ('purged', 'aborted', 'rejected')",
+        f"select id, storage_key, frames, status, multipart_upload_id from videos where {where_sql} and status not in ('purged', 'aborted', 'rejected')",
         (param,),
     ):
         if v["status"] == "uploading" and v["multipart_upload_id"]:
             storage.abort_multipart_upload(v["storage_key"], v["multipart_upload_id"])
-        storage.delete_object(v["storage_key"])
+        for key in _footage_keys(v):
+            storage.delete_object(key)
+    for r in _fetch(conn, f"select tracks_key from analysis_results where {where_sql} and tracks_key is not null", (param,)):
+        storage.delete_object(r["tracks_key"])
 
 
 def purge_deleted_matches(conn, storage: Purger, report: SweepReport) -> None:
@@ -110,7 +120,7 @@ def purge_deleted_matches(conn, storage: Purger, report: SweepReport) -> None:
     )
     for r in rows:
         try:
-            _delete_stored_videos(conn, storage, "match_id = %s", r["id"])
+            _delete_stored_objects(conn, storage, "match_id = %s", r["id"])
             with conn.transaction():
                 conn.execute("delete from matches where id = %s", (r["id"],))  # cascades videos and jobs
             report.purged_matches += 1
@@ -129,7 +139,7 @@ def purge_deleted_orgs(conn, storage: Purger, report: SweepReport) -> None:
     )
     for r in rows:
         try:
-            _delete_stored_videos(conn, storage, "org_id = %s", r["id"])
+            _delete_stored_objects(conn, storage, "org_id = %s", r["id"])
             with conn.transaction():
                 conn.execute("delete from organizations where id = %s", (r["id"],))  # cascades everything
             report.purged_orgs += 1

@@ -27,6 +27,8 @@ export const membershipStatus = pgEnum("membership_status", ["active", "suspende
 export const cameraType = pgEnum("camera_type", ["fixed_wide", "broadcast", "handheld"]);
 export const videoStatus = pgEnum("video_status", ["uploading", "uploaded", "validated", "rejected", "aborted", "purged"]);
 export const jobStatus = pgEnum("job_status", ["queued", "running", "succeeded", "failed", "cancelled"]);
+// prepare: validate the upload and extract reference frames (free). analyze: computer vision (counted).
+export const jobKind = pgEnum("job_kind", ["prepare", "analyze"]);
 export const subscriptionStatus = pgEnum("subscription_status", [
   "trialing",
   "active",
@@ -137,6 +139,8 @@ export const videos = pgTable(
     height: integer("height"),
     fps: real("fps"),
     rejectionReason: text("rejection_reason"),
+    // Reference frames extracted by the prepare job: [{ key, timeSeconds, width, height }].
+    frames: jsonb("frames").notNull().default([]),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     uploadedAt: timestamp("uploaded_at", { withTimezone: true }),
@@ -162,6 +166,7 @@ export const analysisJobs = pgTable(
     videoId: uuid("video_id")
       .notNull()
       .references(() => videos.id, { onDelete: "cascade" }),
+    kind: jobKind("kind").notNull(),
     // One analysis per video unless explicitly re-run with a new key.
     idempotencyKey: text("idempotency_key").notNull().unique(),
     status: jobStatus("status").notNull().default("queued"),
@@ -180,7 +185,8 @@ export const analysisJobs = pgTable(
     config: jsonb("config").notNull().default({}),
     modelVersions: jsonb("model_versions").notNull().default({}),
     // The usage period whose reservation this job holds; settled exactly once on completion.
-    usagePeriodStart: date("usage_period_start").notNull(),
+    // Null for prepare jobs, which are not counted.
+    usagePeriodStart: date("usage_period_start"),
     usageSettled: boolean("usage_settled").notNull().default(false),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
@@ -191,9 +197,13 @@ export const analysisJobs = pgTable(
     index("analysis_jobs_claim_idx").on(t.status, t.runAfter),
     index("analysis_jobs_org_match_idx").on(t.orgId, t.matchId),
     // At most one active analysis per video, enforced by the database under concurrency.
-    uniqueIndex("analysis_jobs_one_active_per_video")
-      .on(t.videoId)
+    uniqueIndex("analysis_jobs_one_active_per_video_kind")
+      .on(t.videoId, t.kind)
       .where(sql`${t.status} in ('queued', 'running')`),
+    check(
+      "analysis_jobs_usage_period_for_analyze",
+      sql`${t.kind} = 'prepare' or ${t.usagePeriodStart} is not null`,
+    ),
     check("analysis_jobs_progress_range", sql`${t.progress} between 0 and 1`),
   ],
 );
@@ -311,3 +321,84 @@ export const processedWebhooks = pgTable("processed_webhooks", {
   type: text("type").notNull(),
   processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Pitch calibration: landmarks clicked on a reference frame, mapped to pitch metres (105 × 68).
+export const calibrations = pgTable(
+  "calibrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    videoId: uuid("video_id")
+      .notNull()
+      .references(() => videos.id, { onDelete: "cascade" }),
+    // [{ landmark, image: [x, y], pitch: [x, y] }], image coordinates in source-video pixels.
+    points: jsonb("points").notNull(),
+    // Row-major 3 × 3 matrix mapping image pixels to pitch metres.
+    homography: jsonb("homography").notNull(),
+    imageWidth: integer("image_width").notNull(),
+    imageHeight: integer("image_height").notNull(),
+    // Root-mean-square distance (metres) between clicked landmarks and where the homography puts them.
+    rmsErrorM: real("rms_error_m").notNull(),
+    // Leave-one-out error: how far each landmark lands when it is not used to fit. Null below 5 points.
+    looErrorM: real("loo_error_m"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("calibrations_video_idx").on(t.orgId, t.videoId, t.createdAt)],
+);
+
+// Results of a succeeded analyze job. Written in the same transaction that marks the job
+// succeeded, so a failed or cancelled job never leaves results behind.
+export const analysisResults = pgTable("analysis_results", {
+  jobId: uuid("job_id")
+    .primaryKey()
+    .references(() => analysisJobs.id, { onDelete: "cascade" }),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  matchId: uuid("match_id")
+    .notNull()
+    .references(() => matches.id, { onDelete: "cascade" }),
+  calibrationId: uuid("calibration_id").references(() => calibrations.id, { onDelete: "set null" }),
+  // Quality indicators, team-shape timeline and metric provenance (see worker/fa_worker/analysis).
+  summary: jsonb("summary").notNull(),
+  // Object-storage key of the full per-frame tracks (gzip JSON lines).
+  tracksKey: text("tracks_key"),
+  createdAt: createdAt(),
+});
+
+// "a" defends the left goal (x = 0) when first seen, "b" the right; "other" = referees and unclear
+// tracks. Which team is "yours" is a user decision, never guessed from video.
+export const trackTeam = pgEnum("track_team", ["a", "b", "other"]);
+
+// One row per tracked person in an analysis run.
+export const analysisTracks = pgTable(
+  "analysis_tracks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => analysisJobs.id, { onDelete: "cascade" }),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    trackNo: integer("track_no").notNull(),
+    team: trackTeam("team").notNull(),
+    firstSeconds: real("first_seconds").notNull(),
+    lastSeconds: real("last_seconds").notNull(),
+    // Share of sampled frames between first and last sighting where the track was observed.
+    coverage: real("coverage").notNull(),
+    avgX: real("avg_x"),
+    avgY: real("avg_y"),
+    // Estimated: sum of smoothed displacements; affected by tracking gaps and calibration error.
+    distanceM: real("distance_m"),
+    // Occupancy counts on a 21 × 14 grid of 5 m cells (row-major, y then x).
+    heatmap: jsonb("heatmap").notNull(),
+  },
+  (t) => [uniqueIndex("analysis_tracks_job_track_uq").on(t.jobId, t.trackNo), index("analysis_tracks_org_idx").on(t.orgId)],
+);

@@ -34,7 +34,7 @@ def test_accepts_a_typical_match_recording():
         ({"duration_seconds": 9000.0}, "too_long"),
         ({"duration_seconds": 4.0}, "too_short"),
         ({"width": 480, "height": 270}, "resolution_too_low"),
-        ({"width": 7680, "height": 4320}, "resolution_too_high"),
+        ({"width": 10240, "height": 4320}, "resolution_too_high"),
         ({"fps": 5.0}, "unsupported_frame_rate"),
         ({"fps": 240.0}, "unsupported_frame_rate"),
         ({"container": "avi"}, "unsupported_container"),

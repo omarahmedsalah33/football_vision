@@ -20,6 +20,7 @@ from psycopg.types.json import Jsonb
 @dataclass(frozen=True)
 class ClaimedJob:
     id: str
+    kind: str
     org_id: str
     match_id: str
     video_id: str
@@ -33,6 +34,8 @@ def connect(database_url: str) -> psycopg.Connection:
 
 
 def _settle_usage(cur: psycopg.Cursor, org_id: str, period_start: Any, consumed: bool) -> None:
+    if period_start is None:
+        return  # prepare jobs are free and never reserved anything
     if consumed:
         cur.execute(
             """update usage_periods
@@ -90,7 +93,7 @@ def claim(conn: psycopg.Connection, worker_id: str, lease_seconds: int) -> Claim
                       started_at = coalesce(j.started_at, now()),
                       stage = null, progress = 0, error_code = null, error_message = null
                  from next where j.id = next.id
-            returning j.id, j.org_id, j.match_id, j.video_id, j.attempts, j.max_attempts, j.config""",
+            returning j.id, j.kind, j.org_id, j.match_id, j.video_id, j.attempts, j.max_attempts, j.config""",
             {"owner": worker_id, "lease": lease_seconds},
         )
         row = cur.fetchone()
@@ -98,6 +101,7 @@ def claim(conn: psycopg.Connection, worker_id: str, lease_seconds: int) -> Claim
         return None
     return ClaimedJob(
         id=str(row["id"]),
+        kind=row["kind"],
         org_id=str(row["org_id"]),
         match_id=str(row["match_id"]),
         video_id=str(row["video_id"]),
@@ -150,7 +154,7 @@ def _finalize(
                   model_versions = coalesce(%s, model_versions),
                   progress = case when %s = 'succeeded' then 1 else progress end,
                   lease_owner = null, lease_expires_at = null, finished_at = now(), usage_settled = true
-            where id = %s and lease_owner = %s and status = 'running' and usage_settled = false
+            where id = %s and lease_owner = %s and status = 'running'
         returning org_id, usage_period_start""",
         (
             status,

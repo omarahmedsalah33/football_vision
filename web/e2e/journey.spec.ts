@@ -3,18 +3,20 @@ import { resolve } from "node:path";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 import { Client } from "pg";
+import { apply, fitHomography } from "../src/lib/pitch/homography";
+import { LANDMARK_BY_ID, STANDARD_PITCH } from "../src/lib/pitch/landmarks";
 import { trackBrowserErrors } from "./browser-errors";
 import { E2E_EMAIL, FIXTURE_VIDEO, WORKER_PYTHON } from "./global-setup";
 
 const SHOTS = resolve(__dirname, "../test-results/screenshots");
 
-async function jobStatus(matchId: string): Promise<string | undefined> {
+async function jobStatus(matchId: string, kind: "prepare" | "analyze"): Promise<string | undefined> {
   const db = new Client({ connectionString: process.env.DATABASE_URL });
   await db.connect();
   try {
     const { rows } = await db.query(
-      "select status from analysis_jobs where match_id = $1 order by created_at desc limit 1",
-      [matchId],
+      "select status from analysis_jobs where match_id = $1 and kind = $2 order by created_at desc limit 1",
+      [matchId, kind],
     );
     return rows[0]?.status;
   } finally {
@@ -63,7 +65,28 @@ test("anonymous visitors are sent to sign-in and cannot use the API", async ({ p
   expect((await request.get("/api/orgs")).status()).toBe(401);
 });
 
-test("coach signs in, creates a match, uploads footage and sees it processed", async ({ page }) => {
+// A camera on the halfway line: where the pitch corners appear in a 1280×720 frame.
+const PITCH_TO_IMAGE = fitHomography([
+  { image: [0, 0], pitch: [260, 110] },
+  { image: [105, 0], pitch: [1020, 110] },
+  { image: [105, 68], pitch: [1255, 700] },
+  { image: [0, 68], pitch: [25, 700] },
+]);
+const CLICKS: [string, string, string][] = [
+  ["Left half", "left_corner_far", "corner, far side"],
+  ["Left half", "left_corner_near", "corner, near side"],
+  ["Centre", "halfway_far", "Halfway line meets far touchline"],
+  ["Centre", "halfway_near", "Halfway line meets near touchline"],
+  ["Right half", "right_corner_far", "corner, far side"],
+  ["Right half", "right_box_near", "penalty box corner, near"],
+];
+
+function runWorker(timeout: number) {
+  execFileSync(WORKER_PYTHON, ["-m", "fa_worker.main", "--once"], { cwd: resolve(__dirname, "../../worker"), stdio: "inherit", timeout });
+}
+
+test("coach signs in, uploads footage, calibrates the pitch and gets an analysis", async ({ page }) => {
+  test.setTimeout(1_200_000);
   const errors = trackBrowserErrors(page);
   await setupClerkTestingToken({ page });
   await page.goto("/");
@@ -87,25 +110,44 @@ test("coach signs in, creates a match, uploads footage and sees it processed", a
   await page.screenshot({ path: `${SHOTS}/05-match-awaiting-video.png`, fullPage: true });
 
   await page.locator('input[type="file"]').setInputFiles(FIXTURE_VIDEO);
-  await expect(matchPage.getByText("Queued", { exact: true })).toBeVisible({ timeout: 60_000 });
-  await page.screenshot({ path: `${SHOTS}/06-match-queued.png`, fullPage: true });
+  await expect(matchPage.getByText("Checking video", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.screenshot({ path: `${SHOTS}/06-match-checking.png`, fullPage: true });
 
   const matchId = page.url().split("/").pop()!;
-  expect(await jobStatus(matchId), "job is committed before the worker runs").toBe("queued");
-
-  // Process the queue with the real worker against the same database and storage.
-  execFileSync(WORKER_PYTHON, ["-m", "fa_worker.main", "--once"], {
-    cwd: resolve(__dirname, "../../worker"),
-    stdio: "inherit",
-    timeout: 90_000,
-  });
-  expect(await jobStatus(matchId), "worker finished the job").toBe("succeeded");
+  expect(await jobStatus(matchId, "prepare"), "prepare job is committed before the worker runs").toBe("queued");
+  runWorker(120_000);
+  expect(await jobStatus(matchId, "prepare")).toBe("succeeded");
 
   // The page refreshes itself while work is in progress.
-  await expect(matchPage.getByText("Analysed", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(matchPage.getByText("Needs calibration", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(matchPage.getByText("1280×720 @ 25.0 fps")).toBeVisible();
-  await expect(matchPage.getByText("The video passed validation.", { exact: false })).toBeVisible();
-  await page.screenshot({ path: `${SHOTS}/07-match-analysed.png`, fullPage: true });
+  await page.screenshot({ path: `${SHOTS}/07-match-needs-calibration.png`, fullPage: true });
+
+  // Calibrate: click six landmarks where a known camera would see them.
+  await matchPage.getByRole("link", { name: "Calibrate pitch" }).click();
+  await expect(page.getByRole("heading", { name: "Calibrate pitch" })).toBeVisible();
+  const frame = page.getByRole("application");
+  await expect(frame).toBeVisible();
+  for (const [group, id, name] of CLICKS) {
+    await page.getByRole("group", { name: group }).getByRole("radio", { name, exact: true }).check();
+    const box = (await frame.boundingBox())!;
+    const [px, py] = apply(PITCH_TO_IMAGE, LANDMARK_BY_ID.get(id)!.at(STANDARD_PITCH));
+    await page.mouse.click(box.x + (px / 1280) * box.width, box.y + (py / 720) * box.height);
+  }
+  await expect(page.getByText("Good", { exact: true })).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/08-calibration.png`, fullPage: true });
+  await page.getByRole("button", { name: "Save calibration" }).click();
+
+  // Analyse with the real detector (RF-DETR) and tracker.
+  await expect(matchPage.getByText("Ready", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await matchPage.getByRole("button", { name: "Start analysis" }).click();
+  await expect(matchPage.getByText("Queued", { exact: true })).toBeVisible({ timeout: 30_000 });
+  runWorker(900_000);
+  expect(await jobStatus(matchId, "analyze"), "worker finished the analysis").toBe("succeeded");
+  await expect(matchPage.getByText("Analysed", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Results" })).toBeVisible();
+  await expect(page.getByText("How reliable is this?")).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/09-results.png`, fullPage: true });
 
   await page.getByRole("link", { name: "Matches", exact: true }).click();
   await expect(page.getByRole("link", { name: /E2E League: Matchday 1/ }).first()).toBeVisible();

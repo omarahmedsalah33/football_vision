@@ -41,3 +41,11 @@ Thumbs.db
 
 # Local scratch
 .tmp/
+
+# Logs
+*.log
+
+# Evaluation runs: keep report.json, never the bulky or local artefacts
+docs/evaluation/**/tracks.jsonl.gz
+docs/evaluation/**/config.json
+docs/evaluation/**/result.json

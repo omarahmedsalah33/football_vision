@@ -1,8 +1,8 @@
 import { getDb } from "@/server/db/client";
-import { AppError, uuidParam } from "@/server/http/errors";
+import { uuidParam } from "@/server/http/errors";
 import { enforceRateLimit, LIMITS } from "@/server/http/rate-limit";
 import { actorFor, route } from "@/server/http/route";
-import { enqueueAnalysis } from "@/server/jobs/service";
+import { enqueuePrepare } from "@/server/jobs/service";
 import { getStorage } from "@/server/storage/s3";
 import { completeUpload } from "@/server/uploads/service";
 import { completeUploadInput } from "@/server/uploads/validation";
@@ -19,15 +19,10 @@ export const POST = route<P, typeof completeUploadInput>(
     await enforceRateLimit(getDb(), LIMITS.completeUpload, actor.userId);
     const video = await completeUpload(getDb(), getStorage(), actor, uuidParam(params.videoId, "Upload"), body);
 
-    // The upload is kept even when analysis cannot be queued yet (for example, allowance used up).
-    try {
-      const job = await enqueueAnalysis(getDb(), actor, video.matchId);
-      return { videoId: video.id, analysis: { jobId: job.id, status: job.status } };
-    } catch (err) {
-      if (err instanceof AppError && err.status < 500) {
-        return { videoId: video.id, analysis: { error: { code: err.code, message: err.message } } };
-      }
-      throw err;
-    }
+    // Free "prepare" job: validates the file and extracts reference frames for calibration.
+    // A retried completion after the checks already ran just reports the current state.
+    if (video.status !== "uploaded") return { videoId: video.id, videoStatus: video.status };
+    const job = await enqueuePrepare(getDb(), actor, video.id);
+    return { videoId: video.id, prepare: { jobId: job.id, status: job.status } };
   },
 );

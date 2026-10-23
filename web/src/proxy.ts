@@ -14,7 +14,7 @@ export default clerkMiddleware({
     strict: true,
     directives: {
       "connect-src": storageOrigin ? [storageOrigin] : [],
-      "img-src": ["data:", "blob:"],
+      "img-src": ["data:", "blob:", ...(storageOrigin ? [storageOrigin] : [])],
       "media-src": ["blob:", ...(storageOrigin ? [storageOrigin] : [])],
       "frame-ancestors": ["'none'"],
       "object-src": ["'none'"],

@@ -6,23 +6,29 @@ import { analysisJobs, subscriptions, videos } from "../../src/server/db/schema"
 import { cancelAnalysis, enqueueAnalysis } from "../../src/server/jobs/service";
 import { createMatch } from "../../src/server/matches/service";
 import type { Actor } from "../../src/server/authz/permissions";
-import { makeActor, testDb } from "../helpers";
+import { calibrate, makeActor, testDb } from "../helpers";
 
 const db = testDb();
 
 async function readyMatch(actor: Actor) {
   const match = await createMatch(db, actor, { title: `Match ${randomUUID().slice(0, 4)}` });
-  await db.insert(videos).values({
-    orgId: actor.orgId,
-    matchId: match.id,
-    storageKey: `test/${randomUUID()}`,
-    declaredSizeBytes: 100,
-    sizeBytes: 100,
-    partSizeBytes: 100,
-    partCount: 1,
-    status: "uploaded",
-    createdBy: actor.userId,
-  });
+  const [video] = await db
+    .insert(videos)
+    .values({
+      orgId: actor.orgId,
+      matchId: match.id,
+      storageKey: `test/${randomUUID()}`,
+      declaredSizeBytes: 100,
+      sizeBytes: 100,
+      partSizeBytes: 100,
+      partCount: 1,
+      status: "validated",
+      width: 1920,
+      height: 1080,
+      createdBy: actor.userId,
+    })
+    .returning();
+  await calibrate(db, actor, match.id, video.id);
   return match;
 }
 

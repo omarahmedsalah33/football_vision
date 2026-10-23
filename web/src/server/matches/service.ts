@@ -3,7 +3,7 @@ import { z } from "zod";
 import { assertCan, type Actor } from "../authz/permissions";
 import { recordAudit } from "../audit";
 import type { DbOrTx } from "../db/client";
-import { analysisJobs, matches, teams, videos } from "../db/schema";
+import { analysisJobs, calibrations, matches, teams, videos } from "../db/schema";
 import { invalidInput, notFound } from "../http/errors";
 
 export const createMatchInput = z.object({
@@ -17,6 +17,8 @@ export type MatchStatus =
   | "awaiting_upload"
   | "uploading"
   | "upload_rejected"
+  | "checking"
+  | "needs_calibration"
   | "ready"
   | "queued"
   | "processing"
@@ -27,10 +29,13 @@ export type MatchStatus =
 type VideoLike = { status: (typeof videos.$inferSelect)["status"] } | undefined;
 type JobLike = { status: (typeof analysisJobs.$inferSelect)["status"] } | undefined;
 
-/** Single place that turns the latest video and job into what the user sees. */
-export function deriveMatchStatus(video: VideoLike, job: JobLike): MatchStatus {
-  if (job) {
-    switch (job.status) {
+/**
+ * Single place that turns the latest video, its prepare and analyze jobs and calibration into
+ * what the user sees, following the lifecycle upload → check → calibrate → analyse.
+ */
+export function deriveMatchStatus(video: VideoLike, prepare: JobLike, analyze: JobLike, calibrated: boolean): MatchStatus {
+  if (analyze) {
+    switch (analyze.status) {
       case "queued":
         return "queued";
       case "running":
@@ -43,10 +48,14 @@ export function deriveMatchStatus(video: VideoLike, job: JobLike): MatchStatus {
         return "cancelled";
     }
   }
-  if (!video || video.status === "aborted") return "awaiting_upload";
+  if (!video || video.status === "aborted" || video.status === "purged") return "awaiting_upload";
   if (video.status === "uploading") return "uploading";
   if (video.status === "rejected") return "upload_rejected";
-  return "ready";
+  if (video.status === "uploaded") {
+    if (prepare?.status === "failed") return "failed";
+    return "checking";
+  }
+  return calibrated ? "ready" : "needs_calibration";
 }
 
 export async function createMatch(db: DbOrTx, actor: Actor, input: z.infer<typeof createMatchInput>) {
@@ -84,19 +93,24 @@ export async function listMatches(db: DbOrTx, actor: Actor) {
   if (rows.length === 0) return [];
 
   const ids = rows.map((m) => m.id);
-  const [vids, jobs] = await Promise.all([
+  const [vids, jobs, cals] = await Promise.all([
     db
       .select({ matchId: videos.matchId, status: videos.status, createdAt: videos.createdAt })
       .from(videos)
       .where(and(eq(videos.orgId, actor.orgId), inArray(videos.matchId, ids)))
       .orderBy(desc(videos.createdAt)),
     db
-      .select({ matchId: analysisJobs.matchId, status: analysisJobs.status, createdAt: analysisJobs.createdAt })
+      .select({ matchId: analysisJobs.matchId, kind: analysisJobs.kind, status: analysisJobs.status, createdAt: analysisJobs.createdAt })
       .from(analysisJobs)
       .where(and(eq(analysisJobs.orgId, actor.orgId), inArray(analysisJobs.matchId, ids)))
       .orderBy(desc(analysisJobs.createdAt)),
+    db
+      .select({ matchId: calibrations.matchId })
+      .from(calibrations)
+      .where(and(eq(calibrations.orgId, actor.orgId), inArray(calibrations.matchId, ids))),
   ]);
-  const latest = <T extends { matchId: string }>(list: T[], id: string) => list.find((x) => x.matchId === id);
+  const latest = <T extends { matchId: string }>(list: T[], id: string, pred: (x: T) => boolean = () => true) =>
+    list.find((x) => x.matchId === id && pred(x));
 
   return rows.map((m) => ({
     id: m.id,
@@ -104,7 +118,12 @@ export async function listMatches(db: DbOrTx, actor: Actor) {
     opponentName: m.opponentName,
     playedOn: m.playedOn,
     createdAt: m.createdAt,
-    status: deriveMatchStatus(latest(vids, m.id), latest(jobs, m.id)),
+    status: deriveMatchStatus(
+      latest(vids, m.id),
+      latest(jobs, m.id, (j) => j.kind === "prepare"),
+      latest(jobs, m.id, (j) => j.kind === "analyze"),
+      cals.some((c) => c.matchId === m.id),
+    ),
   }));
 }
 
@@ -122,12 +141,42 @@ export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {
     .where(and(eq(videos.matchId, match.id), eq(videos.orgId, actor.orgId)))
     .orderBy(desc(videos.createdAt))
     .limit(1);
-  const [job] = await db
-    .select()
-    .from(analysisJobs)
-    .where(and(eq(analysisJobs.matchId, match.id), eq(analysisJobs.orgId, actor.orgId)))
-    .orderBy(desc(analysisJobs.createdAt))
-    .limit(1);
+  const latestJob = async (kind: "prepare" | "analyze") => {
+    const [job] = video
+      ? await db
+          .select()
+          .from(analysisJobs)
+          .where(and(eq(analysisJobs.videoId, video.id), eq(analysisJobs.orgId, actor.orgId), eq(analysisJobs.kind, kind)))
+          .orderBy(desc(analysisJobs.createdAt))
+          .limit(1)
+      : [];
+    return job;
+  };
+  const [prepare, analyze] = await Promise.all([latestJob("prepare"), latestJob("analyze")]);
+  const [calibration] = video
+    ? await db
+        .select()
+        .from(calibrations)
+        .where(and(eq(calibrations.videoId, video.id), eq(calibrations.orgId, actor.orgId)))
+        .orderBy(desc(calibrations.createdAt))
+        .limit(1)
+    : [];
+
+  const publicJob = (job: typeof prepare) =>
+    job
+      ? {
+          id: job.id,
+          kind: job.kind,
+          status: job.status,
+          stage: job.stage,
+          progress: job.progress,
+          errorCode: job.errorCode,
+          errorMessage: job.errorMessage,
+          cancelRequested: job.cancelRequested,
+          createdAt: job.createdAt,
+          finishedAt: job.finishedAt,
+        }
+      : null;
 
   return {
     id: match.id,
@@ -136,7 +185,7 @@ export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {
     playedOn: match.playedOn,
     cameraType: match.cameraType,
     createdAt: match.createdAt,
-    status: deriveMatchStatus(video, job),
+    status: deriveMatchStatus(video, prepare, analyze, !!calibration),
     // Explicit allow-list of fields: storage keys and upload ids never leave the server.
     video: video
       ? {
@@ -149,19 +198,19 @@ export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {
           height: video.height,
           fps: video.fps,
           rejectionReason: video.rejectionReason,
+          frameCount: Array.isArray(video.frames) ? video.frames.length : 0,
+          deleteAfter: video.deleteAfter,
         }
       : null,
-    job: job
+    prepareJob: publicJob(prepare),
+    analysisJob: publicJob(analyze),
+    calibration: calibration
       ? {
-          id: job.id,
-          status: job.status,
-          stage: job.stage,
-          progress: job.progress,
-          errorCode: job.errorCode,
-          errorMessage: job.errorMessage,
-          cancelRequested: job.cancelRequested,
-          createdAt: job.createdAt,
-          finishedAt: job.finishedAt,
+          id: calibration.id,
+          points: (calibration.points as unknown[]).length,
+          rmsErrorM: calibration.rmsErrorM,
+          looErrorM: calibration.looErrorM,
+          createdAt: calibration.createdAt,
         }
       : null,
   };

@@ -23,6 +23,12 @@ Rules applied:
   with `color-mix()`, never invented. The single exception is an error red (`#FF7A6B`), because
   errors must read as errors.
 - Data visualisation: primary data in Mindaro, secondary data in Elite Gold (guide §3, point 8).
+  Validated with the palette checker on `#0B1F17`: colour-blind separation ΔE 12.9 (target ≥ 8)
+  and normal-vision ΔE 16.2 (floor 15) pass; both colours sit *above* the recommended dark-mode
+  lightness band (they glare slightly on large fills). Darkening them into the band was tried
+  systematically and always pushed the pair below the normal-vision floor, so we keep the exact
+  brand colours, use them for lines and dots rather than large fills, and add a non-colour cue:
+  Team B is always dashed.
 - Lush Green is about 3.9:1 against white and 4:1 against `#0B1F17`, so only large or bold text sits
   directly on it (WCAG AA). Small text on Lush Green goes inside a dark pill.
 

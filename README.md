@@ -36,6 +36,9 @@ npm run dev                   # http://localhost:3000
 cd worker
 python -m venv .venv
 .venv/Scripts/python -m pip install -e ".[dev]"     # Windows; use .venv/bin/python elsewhere
+# Computer vision (needed for the analyze stage): PyTorch for your platform first, then the extras.
+.venv/Scripts/python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+.venv/Scripts/python -m pip install -e ".[cv,eval]"
 cp .env.example .env
 .venv/Scripts/python -m fa_worker.main              # add --once to drain the queue and exit
 ```

@@ -22,6 +22,7 @@ const ACTION_LABEL: Record<string, string> = {
   "member.removed": "Member removed",
   "member.left": "Member left",
   "match.deleted": "Match deleted",
+  "billing.plan_changed": "Plan changed",
 };
 
 function Meter({ label, used, limit, unit, extra }: { label: string; used: number; limit: number; unit?: string; extra?: string }) {

@@ -12,6 +12,7 @@ export type AuditAction =
   | "member.removed"
   | "member.left"
   | "match.deleted"
+  | "billing.plan_changed"
   | "account.deleted";
 
 /**

@@ -19,9 +19,10 @@ from ..errors import JobFailure
 ALLOWED_FORMATS = {"mov,mp4,m4a,3gp,3g2,mj2", "matroska,webm"}
 MIN_DURATION_S = 10.0
 MIN_WIDTH, MIN_HEIGHT = 640, 360  # below this, distant players cover only a few pixels
-MAX_WIDTH, MAX_HEIGHT = 4096, 2304
+MAX_WIDTH, MAX_HEIGHT = 7680, 4320  # 8K: fixed panoramic rigs exceed 4K; frames are downscaled for processing
 MIN_FPS, MAX_FPS = 10.0, 120.0
-SAMPLE_POINTS = (0.0, 0.5, 0.9)  # decode a frame near the start, middle and end
+SAMPLE_POINTS = (0.1, 0.5, 0.85)  # decode a frame near the start, middle and end
+REFERENCE_FRAME_MAX_WIDTH = 1920  # reference frames for calibration are stored at most this wide
 MEMORY_LIMIT_BYTES = 2 * 1024**3
 
 
@@ -35,8 +36,9 @@ class VideoInfo:
     fps: float
 
 
-def probe_file(path: str) -> dict:
-    """Runs inside the child process. Returns raw facts or {'error': code}."""
+def probe_file(path: str, frames_dir: str | None = None) -> dict:
+    """Runs inside the child process. Returns raw facts or {'error': code}. When `frames_dir` is
+    given, the sampled frames are also written there as downscaled JPEG reference frames."""
     import av  # imported here so the parent process never loads FFmpeg for untrusted input
 
     try:
@@ -57,12 +59,15 @@ def probe_file(path: str) -> dict:
                 duration = 0.0
 
             decoded = 0
-            for point in SAMPLE_POINTS:
+            frames: list[dict] = []
+            for i, point in enumerate(SAMPLE_POINTS):
                 if point > 0 and duration > 0 and stream.time_base:
                     container.seek(int(duration * point / stream.time_base), stream=stream, backward=True)
                 for frame in container.decode(stream):
                     if frame.width and frame.height:
                         decoded += 1
+                        if frames_dir:
+                            frames.append(_save_reference_frame(frame, Path(frames_dir) / f"frame_{i}.jpg"))
                     break
             return {
                 "container": fmt,
@@ -72,11 +77,21 @@ def probe_file(path: str) -> dict:
                 "height": ctx.height,
                 "fps": fps,
                 "decoded_samples": decoded,
+                "frames": frames,
             }
     except av.error.InvalidDataError:
         return {"error": "undecodable"}
     except av.error.FFmpegError:
         return {"error": "undecodable"}
+
+
+def _save_reference_frame(frame, dest: Path) -> dict:
+    image = frame.to_image()  # PIL.Image (RGB)
+    if image.width > REFERENCE_FRAME_MAX_WIDTH:
+        h = round(image.height * REFERENCE_FRAME_MAX_WIDTH / image.width)
+        image = image.resize((REFERENCE_FRAME_MAX_WIDTH, h))
+    image.save(dest, "JPEG", quality=85)
+    return {"file": dest.name, "time_seconds": float(frame.time or 0.0), "width": image.width, "height": image.height}
 
 
 def _limit_resources() -> None:  # pragma: no cover - POSIX only
@@ -85,8 +100,11 @@ def _limit_resources() -> None:  # pragma: no cover - POSIX only
     resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
 
 
-def run_probe(path: Path, timeout_seconds: int) -> dict:
+def run_probe(path: Path, timeout_seconds: int, frames_dir: Path | None = None) -> dict:
     cmd = [sys.executable, "-I", "-m", "fa_worker.stages.validate", str(path)]
+    if frames_dir is not None:
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        cmd.append(str(frames_dir))
     try:
         proc = subprocess.run(
             cmd,
@@ -132,7 +150,7 @@ def check(facts: dict, max_duration_seconds: float) -> VideoInfo:
             reject_video=True,
         )
     if width > MAX_WIDTH or height > MAX_HEIGHT:
-        raise JobFailure("resolution_too_high", "Videos above 4K resolution are not supported.", reject_video=True)
+        raise JobFailure("resolution_too_high", "Videos above 8K resolution are not supported.", reject_video=True)
     if not (MIN_FPS <= fps <= MAX_FPS):
         raise JobFailure("unsupported_frame_rate", "The video frame rate is not supported.", reject_video=True)
 
@@ -150,6 +168,13 @@ def validate(path: Path, max_duration_seconds: float, timeout_seconds: int) -> V
     return check(run_probe(path, timeout_seconds), max_duration_seconds)
 
 
+def validate_and_extract(path: Path, frames_dir: Path, max_duration_seconds: float, timeout_seconds: int) -> tuple[VideoInfo, list[dict]]:
+    """Validates the video and returns the reference frames written to `frames_dir`."""
+    facts = run_probe(path, timeout_seconds, frames_dir)
+    info = check(facts, max_duration_seconds)
+    return info, facts.get("frames", [])
+
+
 if __name__ == "__main__":  # child-process entry point
-    print(json.dumps(probe_file(sys.argv[1])))
+    print(json.dumps(probe_file(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)))
 
