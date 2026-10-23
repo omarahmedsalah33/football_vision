@@ -83,13 +83,13 @@ async function MatchDetailView({ params }: { params: PageProps<"/app/[org]/match
               <dt className="text-muted">File</dt>
               <dd className="truncate">{video.originalFilename}</dd>
               <dt className="text-muted">Size</dt>
-              <dd>{(video.sizeBytes / 1024 ** 2).toFixed(0)} MB</dd>
+              <dd className="font-data">{(video.sizeBytes / 1024 ** 2).toFixed(0)} MB</dd>
               {video.durationSeconds != null && (
                 <>
                   <dt className="text-muted">Duration</dt>
-                  <dd>{formatDuration(video.durationSeconds)}</dd>
+                  <dd className="font-data">{formatDuration(video.durationSeconds)}</dd>
                   <dt className="text-muted">Resolution</dt>
-                  <dd>
+                  <dd className="font-data">
                     {video.width}×{video.height} @ {video.fps?.toFixed(1)} fps
                   </dd>
                 </>

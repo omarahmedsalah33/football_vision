@@ -1,25 +1,46 @@
 @import "tailwindcss";
 
 /*
- * Design tokens. The product is dark-first by design (sports analytics workspace).
- * Contrast (WCAG): --fg on --bg ≈ 18:1, --muted on --bg ≈ 7.4:1, --bg on --accent ≈ 14:1.
+ * Football Vision brand tokens, exact codes from the Brand Identity & Visual Guidelines (2026-04-09).
+ *   Website background .......... #0B1F17
+ *   Foundational ................ Lush Green    #2E8B57
+ *   Signature ................... Mindaro       #D9F67D
+ *   Accentuation ................ Elite Gold    #E8B33D
+ *   Secondary foundational ...... Forest Green  #123528  (cards, panels, containers)
+ *   Structural .................. Pitch Line    #2C5C46  (borders, dividers)
+ *                                 Cascade       #BFCEC7  (secondary text, light structure)
+ *   Primary text ................ White         #F5F7F2
+ * Shades not in the guide are only ever mixed from these codes (color-mix), never invented.
+ * Danger red is the one functional exception: errors must be recognisable as errors.
+ *
+ * Contrast on #0B1F17: text #F5F7F2 ≈ 16:1, Cascade ≈ 10:1, Mindaro ≈ 14:1, Elite Gold ≈ 8.5:1,
+ * Lush Green ≈ 4:1 (large text and UI shapes only). Text on Mindaro uses the background colour.
  */
 :root {
-  --bg: #070b14;
-  --surface: #0d1422;
-  --surface-2: #131c2e;
-  --border: #1f2b42;
-  --border-strong: #2c3b58;
-  --fg: #f4f7fb;
-  --muted: #9aa8bf;
-  --accent: #c6f432;
-  --accent-fg: #0a1003;
-  --accent-soft: rgb(198 244 50 / 0.12);
-  --pitch: #2fbf71;
-  --pitch-line: rgb(255 255 255 / 0.55);
-  --danger: #ff6b6b;
-  --warning: #f5b544;
-  --info: #5aa9ff;
+  --bg-brand: #0b1f17;
+  --lush: #2e8b57;
+  --mindaro: #d9f67d;
+  --gold: #e8b33d;
+  --forest: #123528;
+  --pitchline: #2c5c46;
+  --cascade: #bfcec7;
+  --white: #f5f7f2;
+
+  --bg: var(--bg-brand);
+  --surface: var(--forest);
+  --surface-2: color-mix(in srgb, var(--forest) 80%, var(--lush));
+  --border: var(--pitchline);
+  --border-strong: color-mix(in srgb, var(--pitchline) 55%, var(--cascade));
+  --fg: var(--white);
+  --muted: var(--cascade);
+  --accent: var(--mindaro);
+  --accent-fg: var(--bg-brand);
+  --accent-soft: color-mix(in srgb, var(--mindaro) 12%, transparent);
+  --pitch: var(--lush);
+  --pitch-line: color-mix(in srgb, var(--white) 55%, transparent);
+  --danger: #ff7a6b;
+  --warning: var(--gold);
+  --info: var(--cascade);
   color-scheme: dark;
 }
 
@@ -38,8 +59,15 @@
   --color-danger: var(--danger);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  --color-lush: var(--lush);
+  --color-mindaro: var(--mindaro);
+  --color-gold: var(--gold);
+  --color-forest: var(--forest);
+  --color-pitchline: var(--pitchline);
+  --color-cascade: var(--cascade);
   --font-sans: var(--font-inter);
   --font-display: var(--font-barlow);
+  --font-data: var(--font-jetbrains);
 }
 
 body {
@@ -48,11 +76,84 @@ body {
   font-family: var(--font-inter), system-ui, sans-serif;
 }
 
+::selection {
+  background: var(--mindaro);
+  color: var(--bg-brand);
+}
+
 /* Keyboard focus is always visible. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--mindaro);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Special font: every number and statistic. Tabular figures keep columns aligned. */
+.font-data {
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* Subtle grass-stripe texture for foundational surfaces. */
+.fv-stripes {
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--white) 3%, transparent) 0 56px,
+    transparent 56px 112px
+  );
+}
+
+/* Hero "vision" animations. All of them stop under prefers-reduced-motion (below). */
+@keyframes fv-drift {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(var(--dx, 0px), var(--dy, 0px));
+  }
+}
+@keyframes fv-scan {
+  from {
+    transform: translateX(-14px);
+  }
+  to {
+    transform: translateX(110px);
+  }
+}
+@keyframes fv-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+@keyframes fv-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@keyframes fv-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fv-player {
+  animation: fv-drift var(--dur, 7s) ease-in-out infinite alternate;
+}
+.fv-scan {
+  animation: fv-scan 7s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.fv-pass {
+  stroke-dasharray: 2 2;
+  animation: fv-dash 1.6s linear infinite;
+}
+.fv-pulse {
+  animation: fv-pulse 1.8s ease-in-out infinite;
+}
+.fv-rise {
+  animation: fv-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

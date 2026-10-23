@@ -1,6 +1,6 @@
-# FootballAnalyzer — Architecture & Delivery Plan
+# Football Vision — Architecture & Delivery Plan
 
-> Working name. Status: Phase 1/2 in progress. This document is the source of truth for
+> Product name: Football Vision (brand guide: docs/BRAND.md). Status: Phase 1/2 in progress. This document is the source of truth for
 > architectural decisions; update it when a decision changes. Progress lives in
 > [STATUS.md](STATUS.md).
 

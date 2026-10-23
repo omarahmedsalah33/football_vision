@@ -1,7 +1,7 @@
 [project]
 name = "fa-worker"
 version = "0.1.0"
-description = "FootballAnalyzer video analysis worker"
+description = "Football Vision video analysis worker"
 requires-python = ">=3.12"
 dependencies = [
   "psycopg[binary]>=3.2",

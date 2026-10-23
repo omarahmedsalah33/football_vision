@@ -1,6 +1,6 @@
-# FootballAnalyzer
+# Football Vision
 
-AI football match intelligence SaaS (working name). Evidence-based analysis of fixed-camera match
+AI football match intelligence SaaS. Evidence-based analysis of fixed-camera match
 footage: every metric carries its provenance (measured / estimated / inferred / unavailable) and links
 back to the video.
 

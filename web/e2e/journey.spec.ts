@@ -34,7 +34,7 @@ function collectConsoleErrors(page: Page) {
 test("landing page renders and labels sample data honestly", async ({ page }) => {
   const errors = collectConsoleErrors(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Match analysis");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Professional-grade analysis");
   await expect(page.getByText("Illustrative data, not from a real match")).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/01-landing-desktop.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });

@@ -24,11 +24,11 @@ export function Pitch({ children, title, className }: { children?: ReactNode; ti
       <title>{title}</title>
       <defs>
         <pattern id="pitch-stripes" width="10.5" height={W} patternUnits="userSpaceOnUse">
-          <rect width="5.25" height={W} fill="#0f3b26" />
-          <rect x="5.25" width="5.25" height={W} fill="#0d3421" />
+          <rect width="5.25" height={W} style={{ fill: "color-mix(in srgb, var(--forest) 78%, var(--lush))" }} />
+          <rect x="5.25" width="5.25" height={W} style={{ fill: "color-mix(in srgb, var(--forest) 90%, var(--lush))" }} />
         </pattern>
       </defs>
-      <rect x={-PAD} y={-PAD} width={L + PAD * 2} height={W + PAD * 2} rx="2" fill="#0b2c1c" />
+      <rect x={-PAD} y={-PAD} width={L + PAD * 2} height={W + PAD * 2} rx="2" style={{ fill: "var(--forest)" }} />
       <rect width={L} height={W} fill="url(#pitch-stripes)" />
       <rect width={L} height={W} {...line} />
       <line x1={L / 2} y1={0} x2={L / 2} y2={W} {...line} />

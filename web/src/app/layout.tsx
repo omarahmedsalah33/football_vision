@@ -1,32 +1,41 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
-import { Barlow_Condensed, Inter } from "next/font/google";
+import { Barlow_Condensed, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
+// Brand typography: primary (headings, architectural), secondary (body/UI), special (data).
+const barlow = Barlow_Condensed({
+  variable: "--font-barlow",
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  style: ["normal", "italic"],
+});
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
-const barlow = Barlow_Condensed({ variable: "--font-barlow", subsets: ["latin"], weight: ["500", "600", "700"] });
+// Variable font: all weights in one file.
+const jetbrains = JetBrains_Mono({ variable: "--font-jetbrains", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: { default: "FootballAnalyzer: evidence-based match intelligence", template: "%s · FootballAnalyzer" },
+  title: { default: "Football Vision: Train. Measure. Perform. Discover.", template: "%s · Football Vision" },
   description:
-    "Upload match footage and get tactical and player insights you can verify: every finding links back to the moments in the video it came from.",
+    "Professional-grade football analysis, made accessible to every team, academy and player. Upload match footage and get insight you can check against the video.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${inter.variable} ${barlow.variable} h-full antialiased`}>
+    <html lang="en" className={`${inter.variable} ${barlow.variable} ${jetbrains.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <ClerkProvider
           appearance={{
             variables: {
-              colorPrimary: "#c6f432",
-              colorPrimaryForeground: "#0a1003",
-              colorBackground: "#0d1422",
-              colorForeground: "#f4f7fb",
-              colorMutedForeground: "#9aa8bf",
-              colorInput: "#131c2e",
-              colorInputForeground: "#f4f7fb",
-              colorBorder: "#2c3b58",
+              colorPrimary: "#d9f67d",
+              colorPrimaryForeground: "#0b1f17",
+              colorBackground: "#123528",
+              colorForeground: "#f5f7f2",
+              colorMutedForeground: "#bfcec7",
+              colorInput: "#0b1f17",
+              colorInputForeground: "#f5f7f2",
+              colorBorder: "#2c5c46",
+              colorDanger: "#ff7a6b",
             },
           }}
         >
