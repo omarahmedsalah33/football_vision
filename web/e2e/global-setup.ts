@@ -8,7 +8,10 @@ import { config } from "dotenv";
 import { Client } from "pg";
 
 export const E2E_EMAIL = "e2e+clerk_test@example.com";
-export const WORKER_PYTHON = resolve(__dirname, "../../worker/.venv/Scripts/python.exe");
+export const WORKER_PYTHON = resolve(
+  __dirname,
+  process.platform === "win32" ? "../../worker/.venv/Scripts/python.exe" : "../../worker/.venv/bin/python",
+);
 export const FIXTURE_VIDEO = resolve(__dirname, "../test-results/fixtures/e2e-match.mp4");
 
 export default async function globalSetup() {
