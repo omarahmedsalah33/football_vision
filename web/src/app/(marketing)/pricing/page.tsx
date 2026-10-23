@@ -104,8 +104,8 @@ export default async function PricingPage() {
             Failed or cancelled analyses are never counted.
           </p>
           <p>
-            <strong className="text-fg">Plan features are being built.</strong> Today every plan can upload and
-            process video; reports and tactical analysis are in development (see the{" "}
+            <strong className="text-fg">Plan features are being built.</strong> Today every plan can upload,
+            calibrate and analyse video (tracking and team shape are in beta); player reports are in development (see the{" "}
             <Link href="/#how" className="text-mindaro underline underline-offset-4">roadmap</Link>).
           </p>
           <p>

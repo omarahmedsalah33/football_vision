@@ -42,29 +42,33 @@ const Icons = {
   ),
 };
 
-const STEPS: { title: string; text: string; live: boolean; icon: ReactNode }[] = [
+// "beta": built and tested, but accuracy on real footage is not yet measured.
+type StepState = "live" | "beta" | "planned";
+const STATE_BADGE = { live: ["accent", "Live"], beta: ["gold", "Beta"], planned: ["neutral", "In development"] } as const;
+
+const STEPS: { title: string; text: string; state: StepState; icon: ReactNode }[] = [
   {
     title: "Upload",
     text: "Send your match video straight to private storage. Big files are fine. Only your workspace can see it.",
-    live: true,
+    state: "live",
     icon: Icons.upload,
   },
   {
     title: "Calibrate",
-    text: "Tap four points on the pitch once per camera spot. From then on, positions are measured in real metres.",
-    live: false,
+    text: "Click four or more points on the pitch once per camera spot. You see the fit and its error in metres before you save.",
+    state: "live",
     icon: Icons.calibrate,
   },
   {
     title: "Detect & track",
-    text: "Computer vision finds and follows every player, frame by frame, and separates the two teams.",
-    live: false,
+    text: "Computer vision finds and follows every player, frame by frame, and separates the two teams by shirt colour.",
+    state: "beta",
     icon: Icons.track,
   },
   {
     title: "Review the evidence",
-    text: "Every finding links to the exact moment in the video, with a clear note on how reliable it is.",
-    live: false,
+    text: "Team shape, positions and heatmaps, each with a label and a note on how reliable it is. Links to video moments are next.",
+    state: "beta",
     icon: Icons.evidence,
   },
 ];
@@ -149,11 +153,15 @@ export default function Home() {
               <ul className="mt-8 flex flex-wrap gap-2 text-sm">
                 <li className="flex items-center gap-2 rounded-full border border-border bg-surface/70 px-3 py-1.5">
                   <span aria-hidden="true" className="h-2 w-2 rounded-full bg-mindaro" />
-                  Live today: secure upload &amp; video processing
+                  Live: secure upload, video checks &amp; pitch calibration
+                </li>
+                <li className="flex items-center gap-2 rounded-full border border-border bg-surface/70 px-3 py-1.5">
+                  <span aria-hidden="true" className="h-2 w-2 rounded-full bg-gold" />
+                  Beta: player tracking &amp; team shape
                 </li>
                 <li className="flex items-center gap-2 rounded-full border border-border bg-surface/70 px-3 py-1.5 text-muted">
                   <span aria-hidden="true" className="h-2 w-2 rounded-full border border-cascade" />
-                  In development: tracking &amp; tactical reports
+                  In development: player reports &amp; video links
                 </li>
               </ul>
             </div>
@@ -184,10 +192,10 @@ export default function Home() {
               <li key={s.title} className="relative">
                 <Card className="h-full p-6" corners="pitchline">
                   <div className="flex items-center justify-between">
-                    <span className={`grid h-12 w-12 place-items-center rounded-xl border ${s.live ? "border-mindaro/50 bg-accent-soft text-mindaro" : "border-border bg-bg text-cascade"}`}>
+                    <span className={`grid h-12 w-12 place-items-center rounded-xl border ${s.state === "planned" ? "border-border bg-bg text-cascade" : "border-mindaro/50 bg-accent-soft text-mindaro"}`}>
                       {s.icon}
                     </span>
-                    <Badge tone={s.live ? "accent" : "neutral"}>{s.live ? "Live" : "In development"}</Badge>
+                    <Badge tone={STATE_BADGE[s.state][0]}>{STATE_BADGE[s.state][1]}</Badge>
                   </div>
                   <p className="mt-5 font-data text-xs text-muted">STEP {String(i + 1).padStart(2, "0")}</p>
                   <h3 className="mt-1 font-display text-2xl font-bold uppercase">{s.title}</h3>
@@ -274,7 +282,7 @@ export default function Home() {
               "Private by default. Videos are never public, and viewing links expire within minutes.",
               "Strict separation between workspaces: one club can never see another club's data.",
               "Your footage is never used to train our models without your explicit, separate permission.",
-              "Retention limits and deletion controls for every workspace (coming soon).",
+              "Retention limits and deletion controls for every workspace.",
             ].map((t) => (
               <li key={t} className="flex gap-3 text-muted">
                 <svg viewBox="0 0 20 20" className="mt-0.5 h-5 w-5 shrink-0 text-mindaro" aria-hidden="true">

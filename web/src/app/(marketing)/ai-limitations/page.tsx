@@ -26,9 +26,10 @@ export default function AiLimitationsPage() {
       <article className="fv-prose mx-auto max-w-3xl px-4 py-16 sm:px-6">
         <h2>Where we are today</h2>
         <p>
-          Football Vision currently checks and processes uploaded video. Player tracking, team shape and
-          reports are in development. When they launch, this page will include accuracy measured on reference
-          matches. We will not publish accuracy claims before we have measured them.
+          Football Vision checks uploaded video, calibrates the pitch and tracks players to measure team shape.
+          Tracking and team shape are in beta: the calculations are tested against a synthetic match with known
+          answers, but accuracy on real football hasn&apos;t been measured yet. This page will include accuracy
+          measured on reference matches when it is. We will not publish accuracy claims before we have measured them.
         </p>
 
         <h2>Every number has a label</h2>

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 const FAQ: { q: string; a: ReactNode }[] = [
   {
     q: "What can Football Vision do today?",
-    a: "You can create a workspace, add matches, upload full match videos securely and have them checked and processed. Player tracking, tactical analysis and reports are in development. Features that aren't ready are always marked “in development”.",
+    a: "You can create a workspace, invite your staff, upload full match videos securely, calibrate the pitch and run an analysis. Player tracking, team shape (width, depth, line height), average positions and heatmaps are in beta: built and tested, but accuracy on real matches isn't published yet. Per-player reports, links to video moments and match questions are in development. Features that aren't ready are always marked “in development”.",
   },
   {
     q: "What kind of camera footage works?",
