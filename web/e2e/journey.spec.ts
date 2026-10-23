@@ -43,6 +43,29 @@ test("landing page renders and labels sample data honestly", async ({ page }) =>
   expect(errors).toEqual([]);
 });
 
+test("pages are served with a strict, per-request nonce CSP", async ({ request }) => {
+  const nonces = new Set<string>();
+  for (const path of ["/", "/", "/sign-in"]) {
+    const res = await request.get(path);
+    const csp = res.headers()["content-security-policy"] ?? "";
+    const scriptSrc = csp.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
+    expect(scriptSrc).toContain("'strict-dynamic'");
+    expect(scriptSrc).not.toMatch(/\shttps?:(\s|$)/); // no scheme-wide script allowance
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("object-src 'none'");
+
+    const nonce = scriptSrc.match(/'nonce-([^']+)'/)?.[1];
+    expect(nonce, `nonce on ${path}`).toBeTruthy();
+    nonces.add(nonce!);
+    // Every <script> Next.js renders must carry that nonce, or the browser would block it.
+    const html = await res.text();
+    const scripts = html.match(/<script\b[^>]*>/g) ?? [];
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const tag of scripts) expect(tag, tag).toContain(`nonce="${nonce}"`);
+  }
+  expect(nonces.size, "a fresh nonce for every response").toBe(3);
+});
+
 test("anonymous visitors are sent to sign-in and cannot use the API", async ({ page, request }) => {
   await page.goto("/app");
   await expect(page).toHaveURL(/\/sign-in/);

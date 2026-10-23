@@ -12,8 +12,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Cache Components / Partial Prerendering are deliberately off: their prerendered shells cannot
+  // carry a per-request CSP nonce, and we choose a strict nonce-based CSP (see src/proxy.ts).
   poweredByHeader: false,
   // Keep server-only packages out of client bundles and let Node load them natively.
   serverExternalPackages: ["pg", "pino"],

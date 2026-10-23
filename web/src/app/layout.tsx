@@ -24,7 +24,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} ${barlow.variable} ${jetbrains.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
+        {/* dynamic: renders per request so Clerk's scripts receive the CSP nonce. */}
         <ClerkProvider
+          dynamic
           appearance={{
             variables: {
               colorPrimary: "#d9f67d",

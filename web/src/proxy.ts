@@ -9,6 +9,9 @@ const storageOrigin = process.env.S3_PUBLIC_ENDPOINT ? new URL(process.env.S3_PU
 
 export default clerkMiddleware({
   contentSecurityPolicy: {
+    // Strict CSP: per-request nonce + 'strict-dynamic'. Modern browsers then ignore host
+    // allowlists and 'unsafe-inline' for scripts; 'unsafe-eval' is only added in development.
+    strict: true,
     directives: {
       "connect-src": storageOrigin ? [storageOrigin] : [],
       "img-src": ["data:", "blob:"],
