@@ -169,9 +169,13 @@ export async function completeUpload(
     throw invalidInput("The file is not a supported video format.");
   }
 
+  // Retention starts when the footage is stored; the worker's maintenance sweep purges it after.
+  const { limits } = await getEntitlements(db, actor.orgId);
+  const uploadedAt = new Date();
+  const deleteAfter = new Date(uploadedAt.getTime() + limits.retentionDays * 86_400_000);
   const [updated] = await db
     .update(videos)
-    .set({ status: "uploaded", sizeBytes: size, uploadedAt: new Date(), multipartUploadId: null })
+    .set({ status: "uploaded", sizeBytes: size, uploadedAt, deleteAfter, multipartUploadId: null })
     .where(and(eq(videos.id, video.id), eq(videos.status, "uploading")))
     .returning();
   // A concurrent completion may have won; return the current row either way.

@@ -57,3 +57,14 @@ class S3Storage:
         if written != expected_size:
             raise JobFailure("storage_unavailable", "Downloading the video was incomplete.", retryable=True)
         return dest
+
+    def delete_object(self, key: str) -> None:
+        """Idempotent: deleting a missing object succeeds."""
+        self._client.delete_object(Bucket=self._bucket, Key=key)
+
+    def abort_multipart_upload(self, key: str, upload_id: str) -> None:
+        try:
+            self._client.abort_multipart_upload(Bucket=self._bucket, Key=key, UploadId=upload_id)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "NoSuchUpload":
+                raise

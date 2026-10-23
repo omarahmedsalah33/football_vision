@@ -6,14 +6,17 @@ import logging
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 
-from . import queue
+from . import maintenance, queue
 from .config import Settings, load_env_file
 from .pipeline import process
 from .storage import S3Storage
 
 log = logging.getLogger("fa_worker")
+
+MAINTENANCE_INTERVAL_SECONDS = 600
 
 
 def run(settings: Settings, stop: threading.Event, *, once: bool = False) -> None:
@@ -21,8 +24,15 @@ def run(settings: Settings, stop: threading.Event, *, once: bool = False) -> Non
     storage = S3Storage(settings)
     settings.work_dir.mkdir(parents=True, exist_ok=True)
     log.info("worker started", extra={"worker_id": settings.worker_id})
+    last_maintenance = 0.0
     with queue.connect(settings.database_url) as conn:
         while not stop.is_set():
+            if time.monotonic() - last_maintenance >= MAINTENANCE_INTERVAL_SECONDS:
+                try:
+                    maintenance.run_sweeps(conn, storage)
+                except Exception:
+                    log.exception("maintenance sweep failed")
+                last_maintenance = time.monotonic()
             try:
                 reaped = queue.reap_expired(conn)
                 if reaped:

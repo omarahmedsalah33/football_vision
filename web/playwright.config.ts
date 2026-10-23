@@ -8,6 +8,9 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
+  // One retry: these tests depend on the identity provider's network services, which time out
+  // occasionally. Playwright reports a pass-on-retry as "flaky", so it stays visible.
+  retries: 1,
   reporter: [["list"]],
   globalSetup: "./e2e/global-setup.ts",
   use: {

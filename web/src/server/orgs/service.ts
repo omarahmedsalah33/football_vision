@@ -2,9 +2,10 @@ import { randomBytes } from "node:crypto";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Actor, Role } from "../authz/permissions";
+import { recordAudit } from "../audit";
 import type { DbOrTx } from "../db/client";
 import { memberships, organizations, users } from "../db/schema";
-import { notFound } from "../http/errors";
+import { AppError, notFound } from "../http/errors";
 
 export type Identity = {
   /** Identity-provider subject (Clerk user id). */
@@ -42,6 +43,8 @@ export async function ensureUser(db: DbOrTx, identity: Identity): Promise<UserRo
       .values({ authSubject: identity.subject, email: identity.email ?? null, displayName: identity.displayName ?? null })
       .onConflictDoNothing({ target: users.authSubject });
     const [user] = await tx.select().from(users).where(eq(users.authSubject, identity.subject));
+    // A deleted account must never be revived by a lingering identity-provider session.
+    if (user.deletedAt) throw new AppError(403, "account_deleted", "This account has been deleted.");
 
     const [personal] = await tx
       .insert(organizations)
@@ -115,6 +118,7 @@ export async function createOrg(db: DbOrTx, userId: string, input: z.infer<typeo
       .values({ name: input.name, kind: input.kind, slug: slugify(input.name) })
       .returning();
     await tx.insert(memberships).values({ orgId: org.id, userId, role: "owner" });
+    await recordAudit(tx, { orgId: org.id, actorUserId: userId, action: "org.created", metadata: { kind: input.kind } });
     return org;
   });
 }

@@ -39,6 +39,12 @@ async function WorkspaceNav({ params }: { params: LayoutProps<"/app/[org]">["par
       </div>
       <nav aria-label="Sections" className="space-y-1">
         <NavLink href={`/app/${actor.orgSlug}/matches`}>Matches</NavLink>
+        <NavLink href={`/app/${actor.orgSlug}/members`}>Members</NavLink>
+        <NavLink href={`/app/${actor.orgSlug}/settings`}>Settings</NavLink>
+      </nav>
+      <nav aria-label="Account" className="mt-auto space-y-1 border-t border-border pt-4">
+        <NavLink href="/app/new">New club workspace</NavLink>
+        <NavLink href="/app/account">Account</NavLink>
       </nav>
     </>
   );

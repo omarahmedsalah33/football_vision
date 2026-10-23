@@ -53,6 +53,9 @@ describe("multipart upload against real object storage", () => {
     const parts = await uploadParts(actor, videoId, file, partSize, [1, 2]);
     const done = await completeUpload(db, storage, actor, videoId, { parts });
     expect(done).toMatchObject({ status: "uploaded", sizeBytes: size });
+    // Free plan retention (30 days) starts at upload.
+    const days = (done.deleteAfter!.getTime() - done.uploadedAt!.getTime()) / 86_400_000;
+    expect(days).toBe(30);
 
     // Browser lost the response and retries: same result, no error.
     const again = await completeUpload(db, storage, actor, videoId, { parts });

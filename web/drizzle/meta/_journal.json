@@ -29,6 +29,20 @@
       "when": 1792772798464,
       "tag": "0003_contact_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792774322817,
+      "tag": "0004_members_and_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792775367887,
+      "tag": "0005_free_plan_members",
+      "breakpoints": true
     }
   ]
 }

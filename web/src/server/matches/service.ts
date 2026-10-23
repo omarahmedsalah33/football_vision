@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { assertCan, type Actor } from "../authz/permissions";
+import { recordAudit } from "../audit";
 import type { DbOrTx } from "../db/client";
 import { analysisJobs, matches, teams, videos } from "../db/schema";
 import { invalidInput, notFound } from "../http/errors";
@@ -169,15 +170,18 @@ export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {
 export type MatchDetail = Awaited<ReturnType<typeof getMatch>>;
 
 /**
- * Soft delete: the match disappears for users immediately. Purging stored footage is done by the
- * retention worker (not yet implemented, tracked in docs/STATUS.md).
+ * Soft delete: the match disappears for users immediately. The worker's maintenance sweep purges
+ * its footage and rows after a grace period (see worker/fa_worker/maintenance.py).
  */
 export async function deleteMatch(db: DbOrTx, actor: Actor, matchId: string) {
   assertCan(actor, "match.delete");
-  const updated = await db
-    .update(matches)
-    .set({ deletedAt: new Date() })
-    .where(and(eq(matches.id, matchId), eq(matches.orgId, actor.orgId), isNull(matches.deletedAt)))
-    .returning({ id: matches.id });
-  if (updated.length === 0) throw notFound("Match");
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(matches)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(matches.id, matchId), eq(matches.orgId, actor.orgId), isNull(matches.deletedAt)))
+      .returning({ id: matches.id, title: matches.title });
+    if (updated.length === 0) throw notFound("Match");
+    await recordAudit(tx, { orgId: actor.orgId, actorUserId: actor.userId, action: "match.deleted", targetType: "match", targetId: matchId });
+  });
 }

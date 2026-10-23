@@ -25,7 +25,7 @@ export const orgKind = pgEnum("org_kind", ["personal", "club", "academy"]);
 export const memberRole = pgEnum("member_role", ["owner", "admin", "coach", "analyst", "scout", "player"]);
 export const membershipStatus = pgEnum("membership_status", ["active", "suspended"]);
 export const cameraType = pgEnum("camera_type", ["fixed_wide", "broadcast", "handheld"]);
-export const videoStatus = pgEnum("video_status", ["uploading", "uploaded", "validated", "rejected", "aborted"]);
+export const videoStatus = pgEnum("video_status", ["uploading", "uploaded", "validated", "rejected", "aborted", "purged"]);
 export const jobStatus = pgEnum("job_status", ["queued", "running", "succeeded", "failed", "cancelled"]);
 export const subscriptionStatus = pgEnum("subscription_status", [
   "trialing",
@@ -281,3 +281,33 @@ export const contactMessages = pgTable(
   },
   (t) => [index("contact_messages_created_idx").on(t.createdAt)],
 );
+
+// Invitations to join a workspace. Only a SHA-256 hash of the token is stored; the token itself
+// is shown once to the inviter and travels only in the invitation link.
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: memberRole("role").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedBy: uuid("invited_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedBy: uuid("accepted_by").references(() => users.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("invitations_org_idx").on(t.orgId, t.createdAt)],
+);
+
+// Idempotency for inbound webhooks (identity provider now, payment provider later): a delivery
+// whose id is already recorded is acknowledged without being processed again.
+export const processedWebhooks = pgTable("processed_webhooks", {
+  id: text("id").primaryKey(), // provider-namespaced delivery id, e.g. "clerk:msg_..."
+  type: text("type").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+});

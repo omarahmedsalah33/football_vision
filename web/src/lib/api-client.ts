@@ -9,9 +9,9 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiPost<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+export async function apiRequest<T>(method: "POST" | "PATCH" | "DELETE" | "GET", path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
-    method: "POST",
+    method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
@@ -23,3 +23,5 @@ export async function apiPost<T>(path: string, body?: unknown, signal?: AbortSig
   }
   return data as T;
 }
+
+export const apiPost = <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>("POST", path, body, signal);

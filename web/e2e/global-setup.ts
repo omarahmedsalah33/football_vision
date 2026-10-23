@@ -8,6 +8,7 @@ import { config } from "dotenv";
 import { Client } from "pg";
 
 export const E2E_EMAIL = "e2e+clerk_test@example.com";
+export const E2E_EMAIL_2 = "e2e2+clerk_test@example.com";
 export const WORKER_PYTHON = resolve(
   __dirname,
   process.platform === "win32" ? "../../worker/.venv/Scripts/python.exe" : "../../worker/.venv/bin/python",
@@ -24,14 +25,14 @@ export default async function globalSetup() {
 
   // Ensure the test user exists in the Clerk development instance.
   const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
-  const existing = await clerk.users.getUserList({ emailAddress: [E2E_EMAIL] });
-  if (existing.data.length === 0) {
-    await clerk.users.createUser({
-      emailAddress: [E2E_EMAIL],
-      firstName: "E2E",
-      lastName: "Coach",
-      skipPasswordRequirement: true,
-    });
+  for (const [email, firstName] of [
+    [E2E_EMAIL, "E2E"],
+    [E2E_EMAIL_2, "Second"],
+  ]) {
+    const existing = await clerk.users.getUserList({ emailAddress: [email] });
+    if (existing.data.length === 0) {
+      await clerk.users.createUser({ emailAddress: [email], firstName, lastName: "Coach", skipPasswordRequirement: true });
+    }
   }
 
   // The free plan allows one analysis a month; give each run a fresh allowance (dev database only).
