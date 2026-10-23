@@ -1,0 +1,43 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Model weights, datasets and media (never commit customer footage)
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+worker/.cache/
+worker/models/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local scratch
+.tmp/

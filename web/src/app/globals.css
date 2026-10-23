@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. The product is dark-first by design (sports analytics workspace).
+ * Contrast (WCAG): --fg on --bg ≈ 18:1, --muted on --bg ≈ 7.4:1, --bg on --accent ≈ 14:1.
+ */
+:root {
+  --bg: #070b14;
+  --surface: #0d1422;
+  --surface-2: #131c2e;
+  --border: #1f2b42;
+  --border-strong: #2c3b58;
+  --fg: #f4f7fb;
+  --muted: #9aa8bf;
+  --accent: #c6f432;
+  --accent-fg: #0a1003;
+  --accent-soft: rgb(198 244 50 / 0.12);
+  --pitch: #2fbf71;
+  --pitch-line: rgb(255 255 255 / 0.55);
+  --danger: #ff6b6b;
+  --warning: #f5b544;
+  --info: #5aa9ff;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-pitch: var(--pitch);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-barlow);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+/* Keyboard focus is always visible. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

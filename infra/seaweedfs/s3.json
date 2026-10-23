@@ -1,0 +1,11 @@
+{
+  "identities": [
+    {
+      "name": "fa-dev",
+      "credentials": [
+        { "accessKey": "fa_dev_access_key", "secretKey": "fa_dev_secret_key_local_only" }
+      ],
+      "actions": ["Read", "Write", "List", "Tagging", "Admin"]
+    }
+  ]
+}
