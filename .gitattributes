@@ -1,0 +1,5 @@
+# Keep LF line endings in the repository and working tree (code runs in Linux containers).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.mp4 binary
