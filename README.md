@@ -16,7 +16,7 @@ Every number points back to the moment in the video it came from and says how it
 ![PyTorch](https://img.shields.io/badge/PyTorch-CUDA-0B1F17?style=for-the-badge&logo=pytorch&logoColor=E8B33D)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-0B1F17?style=for-the-badge&logo=postgresql&logoColor=D9F67D)
 
-![Tests](https://img.shields.io/badge/tests-182_passing-2E8B57?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-239_passing-2E8B57?style=flat-square)
 ![Accessibility](https://img.shields.io/badge/WCAG_2.1_AA-0_serious_issues-2E8B57?style=flat-square)
 ![CSP](https://img.shields.io/badge/CSP-strict_nonce-2E8B57?style=flat-square)
 ![Status](https://img.shields.io/badge/status-early_access-E8B33D?style=flat-square)
@@ -85,18 +85,20 @@ Football Vision is **early-access software**. This table only lists what is buil
 |---|---|---|
 | 🏟️ | **Workspaces**: personal, club and academy workspaces with a switcher | ✅ Live |
 | 👥 | **Team management**: 6 roles, one permission matrix, single-use email-bound invitations | ✅ Live |
+| 🏠 | **Workspace home**: next step for every match, live processing, latest results, getting-started checklist | ✅ Live |
 | 📤 | **Uploads**: large match videos sent straight to private storage in signed parts | ✅ Live |
-| 🎞️ | **Video checks**: format, duration and resolution probed in an isolated, time-limited process | ✅ Live |
-| 📐 | **Pitch calibration**: click landmarks, live pitch-line overlay, leave-one-out error in metres | ✅ Live |
-| 🤖 | **Detection and tracking**: RF-DETR + ByteTrack on GPU, foot points projected to pitch metres | ✅ Built, tested on synthetic truth |
-| 🎥 | **Moving cameras**: auto-tracking cameras followed from one calibrated frame, every placement checked against the pitch lines | 🟡 Beta, tested on synthetic pan/zoom footage |
-| 👕 | **Team separation**: shirt-colour clustering, referees and goalkeepers kept apart | ✅ Built, tested on synthetic truth |
-| 📊 | **Results**: team width, depth and line height over time, average positions, heatmaps, per-track distance | ✅ Built, tested on synthetic truth |
-| 🧾 | **Plans and usage**: quotas reserved atomically and enforced server-side | ✅ Live |
-| 🗑️ | **Retention and deletion**: footage expiry, account deletion, workspace purge, audit log | ✅ Live |
-| 🎯 | Accuracy on real football (SoccerTrack v2 evaluation) | 🟡 Harness built, not yet run |
-| 🏃 | **Player reports**: physical score out of 100, strengths and weaknesses with their numbers, distance, sprints, top speed, stamina, photo, names added by staff | 🟡 Beta, tested on synthetic truth |
+| 🎞️ | **Video checks**: format, duration and resolution probed in an isolated, time-limited process; 8 frames extracted; camera labelled fixed or moving | ✅ Live |
+| 📐 | **Guided pitch calibration**: pick the pitch type (11, 9, 7/8 or 5/6-a-side), click the points asked for one at a time, plain-language accuracy, reuse a camera spot | ✅ Live |
 | ⚡ | **Automatic start**: the analysis starts as soon as the pitch is marked | ✅ Live |
+| 🤖 | **Detection and tracking**: RF-DETR + ByteTrack on GPU, foot points projected to pitch metres, hidden players' fragments joined | ✅ Built, tested on synthetic truth |
+| 🎥 | **Moving cameras**: auto-tracking cameras followed from one calibrated frame, every placement checked against the pitch lines | 🟡 Beta: synthetic pan/zoom, plus one real broadcast clip |
+| 👕 | **Team separation**: shirt colour from each player's clearest view; referees and goalkeepers kept apart | ✅ 91 % right on 170 hand-labelled real tracks |
+| 🏃 | **Player reports**: physical score out of 100, strengths and weaknesses with their numbers, distance, sprints, top speed, stamina, photo, names added by staff | 🟡 Beta, tested on synthetic truth |
+| 📊 | **Team results**: width, depth and line height over time, average positions, heatmaps | ✅ Built, tested on synthetic truth |
+| 🧾 | **Plans and usage**: quotas reserved atomically and enforced server-side | ✅ Live |
+| 🗑️ | **Deletion and retention**: match deletion (owners and admins), footage expiry, account deletion, workspace purge, audit log | ✅ Live |
+| 🧭 | Automatic pitch finding (no calibration step) | 🧪 Experimental, not switched on: not yet reliable on real footage |
+| 🎯 | Accuracy on real football (SoccerTrack v2 evaluation) | 🟡 Harness built, not yet run |
 | ⚽ | Goals, assists, shots and passes | 🔜 Needs ball tracking |
 | 🎬 | Video playback synced to the timeline | 🔜 Phase 4 |
 | 💬 | "Ask your match" assistant, grounded in stored evidence | 🔜 Phase 4 |
@@ -115,7 +117,7 @@ Football Vision is **early-access software**. This table only lists what is buil
 ```mermaid
 flowchart LR
     A["📤 <b>Upload</b><br/>Match video goes straight<br/>to private storage"] --> B["🎞️ <b>Check</b><br/>Isolated probe validates<br/>the file, extracts frames"]
-    B --> C["📐 <b>Calibrate</b><br/>Click ≥ 4 pitch landmarks<br/>once per camera"]
+    B --> C["📐 <b>Calibrate</b><br/>Click 5+ points, guided,<br/>once per camera spot"]
     C --> D["🤖 <b>Analyse</b><br/>Detect, track, project,<br/>split teams, measure"]
     D --> E["📊 <b>Review</b><br/>Every metric labelled<br/>with its provenance"]
 
@@ -128,59 +130,66 @@ flowchart LR
 
 1. **Upload.** The browser uploads directly to S3-compatible storage with presigned multipart URLs.
    Each part's size is signed, and the file's first bytes are checked to confirm it is a video.
-2. **Check (free).** The worker probes the video in a separate, time-limited process and extracts
-   three reference frames for calibration. This step doesn't count against your plan.
-3. **Calibrate.** You click known pitch landmarks (corners, box corners, penalty spots, centre
-   line). A normalised DLT homography maps the image to the pitch. Each landmark is tested against
-   a fit made without it, and a calibration with more than 3 m of error is rejected, naming the
-   landmark to fix.
-4. **Analyse (counted).** Detection, tracking, projection, team separation and metrics run on the
-   GPU worker, with live progress, cancel and a timeout.
-5. **Review.** Results show the reliability panel first, then team shape, positions and heatmaps,
-   each labelled Measured / Estimated / Inferred / Not available.
+2. **Check (free).** The worker probes the video in a separate, time-limited process, extracts eight
+   reference frames and labels the camera as fixed or moving. This step doesn't count against your plan.
+3. **Calibrate, once per camera spot.** Pick the pitch type, then click the points the app asks for,
+   one at a time, on a pitch drawing (skip what you can't see). A normalised DLT homography maps the
+   image to the pitch; at least 5 points are needed so a misplaced click can't hide, each is tested
+   against a fit made without it, and the result is shown in plain words ("accurate to about
+   0.4 m"). Mirrored or impossible fits are rejected. Next match from the same spot: one click reuses it.
+4. **Analyse (counted), automatically.** Saving the calibration starts the analysis: detection,
+   tracking (fragments of a hidden player joined back together), projection, team separation and
+   metrics on the GPU worker, with live progress, cancel and a timeout. A moving camera is followed
+   frame by frame and checked against the pitch lines.
+5. **Review.** Results open with the reliability panel, then the **Players** section (score out of
+   100, strengths and weaknesses), team shape, positions and heatmaps, each labelled
+   Measured / Estimated / Inferred / Not available.
 
 ---
 
 ## Inside the product
 
+**Workspace home**<br/>
+<sub>Every match with its next step, what's processing, the latest results and filming tips.</sub>
+
+<img src="docs/images/home.png" alt="Workspace home: welcome banner, key numbers, matches needing the next step with a five-step progress tracker"/>
+
+**Player reports**<br/>
+<sub>A physical score out of 100 compared with the other players in the match, strengths and weaknesses that quote their numbers, and the reason when a player isn't scored.</sub>
+
+<img src="docs/images/players.png" alt="Players section: cards with photo placeholder, team, zone, score ring, distance, top speed, sprints, a strength or weakness"/>
+
 <table>
 <tr>
 <td width="50%" valign="top">
 
-**Pitch calibration**<br/>
-<sub>Pitch lines are drawn from the fitted calibration so you can check it by eye. Fit error and
-prediction error are shown in metres.</sub>
+**One player's report**<br/>
+<sub>How the score is built, strengths and what to work on, heatmap; staff add the name and shirt number.</sub>
 
-<img src="docs/images/calibration.png" alt="Calibration screen: pitch lines drawn over a frame, with fit quality 'Good', 0.04 m fit error and 0.12 m prediction error"/>
+<img src="docs/images/player-report.png" alt="Player report dialog: score 95, strengths with numbers, score breakdown bars"/>
 
 </td>
 <td width="50%" valign="top">
 
-**Mobile-first marketing site**<br/>
-<sub>Fully responsive, WCAG 2.1 AA checked with axe on every page.</sub>
+**Guided calibration**<br/>
+<sub>Pick the pitch type, then click the points asked for. Green pitch lines show the fit; accuracy in plain words.</sub>
 
-<img src="docs/images/landing-mobile.png" alt="Landing page on a phone" width="60%"/>
+<img src="docs/images/calibration.png" alt="Guided calibration: frame strip, pitch lines over the frame, pitch drawing with the next point, 'Great: accurate to about 0.1 m'"/>
 
 </td>
 </tr>
 </table>
 
 **Results: reliability panel and team shape over time**
-<sub>Small multiples with a shared crosshair; gaps appear where too few players were visible to
-measure.</sub>
 
-<img src="docs/images/results-shape.png" alt="Results page: reliability panel (calibration error 0.30 m, 21 people per frame, identities mostly hold) and team width, depth and defensive line height charts"/>
+<img src="docs/images/results-shape.png" alt="Results page: reliability panel and team width, depth and defensive line height charts"/>
 
 **Results: average positions and heatmap**
 
 <img src="docs/images/results-positions.png" alt="Average positions of both teams on a pitch diagram, and a heatmap of where Team A played"/>
 
 > [!NOTE]
-> The results screenshots show **synthetic test data** generated for visual QA, not a real match.
-
----
-
-## The AI pipeline
+> Results and player screenshots show **synthetic test data** used for testing, not a real match.
 
 ```mermaid
 flowchart TB
@@ -202,8 +211,11 @@ flowchart TB
 | **Detection** | [RF-DETR](https://github.com/roboflow/rf-detr) (Nano–Large, COCO person class) on overlapping tiles | Apache-2.0 code and weights; tiling keeps distant players large enough to detect. PML-licensed "plus" models are refused in code. |
 | **Tracking** | ByteTrack from Roboflow's [`trackers`](https://github.com/roboflow/trackers) | Apache-2.0, keeps low-confidence boxes that matter in crowded penalty areas |
 | **Calibration** | Normalised DLT homography, shared TypeScript code in browser and server | Same maths for the preview you see and the result that's saved; leave-one-out error gives a fair accuracy estimate |
-| **Teams** | 2-means clustering of shirt colour (Lab) per track, outliers → "other" | Works with any kit, no training data needed; referees stay out of team metrics |
-| **Metrics** | Team width, depth, defensive-line height per window; average positions; heatmaps; distance | Each one gated on enough visible players; never filled in by guessing |
+| **Teams** | Shirt colour (Lab) from each player's clearest view; over-clustered into up to 6 colour groups; groups rarely seen several at once (referees, goalkeepers) set aside; the rest split in two | Works with any kit, no training data; measured 91 % right on 170 hand-labelled real broadcast tracks |
+| **Player identity** | Track fragments joined when a hidden player reappears within 6 s at a reachable distance, same team; refused when two continuations are equally likely | One report per person; a wrong join would mix two players' numbers, so ambiguity is left apart |
+| **Moving cameras** | ORB features on static scenery, keyframe bank (drift discarded when a view returns), every placement checked against the white lines on the grass; cuts and replays skipped | Auto-tracking cameras turn and zoom from one spot; nothing is placed on the pitch unless the lines confirm it |
+| **Metrics** | Team width, depth, defensive-line height per window; per player: distance, high-intensity distance, sprints, top speed, stamina; heatmaps | Each one gated on enough visible players; thresholds follow the pitch format (8 of 11, 4 of 5) |
+| **Player score** | Average of percentile ranks among comparable outfield players in the same match: work rate, high-intensity running, top speed, sprints, stamina | Transparent and relative; running only, no ball events, so labelled estimated |
 
 Every analysis records the exact model, version, tile size and threshold it used, so results can
 be traced and reproduced.
@@ -380,13 +392,13 @@ cd web && npx tsx scripts/grant-plan.mts --email <address> --plan internal
 
 ## Testing
 
-Results of the latest full run (2026-10-23):
+Results of the latest full run (2026-10-24):
 
 | Suite | Count | What it covers |
 |---|---:|---|
-| **Web unit + integration** (Vitest) | **105** | Permissions, tenancy, members, invitations, quota, uploads (real S3), rate limits, HTTP layer, webhooks, homography, calibration, results, migrations |
-| **Worker** (pytest) | **57** | Queue leases and fencing, video validation, pipeline, maintenance sweeps, tracking, teams, metrics, synthetic-match accuracy, evaluation scoring |
-| **Browser end-to-end** (Playwright) | **20** | Real sign-in, upload → worker → results with a real RF-DETR run on the GPU, calibration by clicks, two-user team flows, account deletion, CSP headers, axe accessibility scans |
+| **Web unit + integration** (Vitest) | **127** | Permissions, tenancy, members, invitations, quota, uploads (real S3), rate limits, HTTP layer, webhooks, homography and plausibility, calibration (formats, moving cameras, reuse), match deletion, player reports and naming, results, migrations |
+| **Worker** (pytest) | **90** | Queue leases and fencing, video validation and camera labelling, pipeline, maintenance (incl. photo purge), tracking and fragment joining, team separation, running profiles, camera following (pan/zoom, cuts, line checks), moving-camera analysis, automatic calibration safety, synthetic-match accuracy, evaluation scoring |
+| **Browser end-to-end** (Playwright) | **22** | Real sign-in, upload → automatic analysis start → results with a real RF-DETR run on the GPU, guided calibration, player reports and naming, match deletion, two-user team flows, account deletion, phone navigation, CSP headers, axe accessibility scans |
 
 All passed first try, the production build passes, and `pip-audit` is clean.
 
@@ -446,7 +458,7 @@ football_vision/
 | **1 · Foundation** | Architecture, data model, auth, CI, infrastructure | ✅ Done |
 | **2 · Core SaaS** | Workspaces, roles, invitations, uploads, quotas, retention, audit, account deletion | ✅ Done |
 | **3 · First AI slice** | Calibration, detection, tracking, teams, team-shape metrics, results UI, evaluation harness | ✅ Built · 🟡 real-footage accuracy pending |
-| **4 · Analytics** | Video playback synced to the timeline, player profiles, linking tracks to players, "Ask your match" | 🔜 Next |
+| **4 · Analytics** | Player reports, team separation, moving cameras (done, beta); automatic pitch finding, ball tracking, video playback synced to the timeline, "Ask your match" | 🟡 In progress |
 | **5 · Commercial** | Payment provider, PDF reports, expiring share links, email delivery | 🟡 Plans and limits enforced; payments not connected |
 | **6 · Production** | Hardened containers, least-privilege DB roles, deployment, backups with restore drills, monitoring | 🟡 Strict CSP, CI and migration guard in place |
 
@@ -457,10 +469,15 @@ football_vision/
 We'd rather you hear these from us:
 
 - **Real-footage accuracy is unmeasured.** It will be published before it is claimed.
+- **The pitch is still marked by hand, once per camera spot.** Automatic pitch finding exists as an
+  experiment but isn't reliable on real footage yet, so it's switched off.
 - **Moving cameras are in beta.** A camera that turns and zooms from one spot (auto-tracking cameras)
   is followed from one calibrated frame and checked against the pitch lines; it's verified on
-  synthetic footage, not yet on real auto-tracking recordings. Handheld footage isn't supported, and
-  a TV broadcast is only analysed for the shot you calibrate.
+  synthetic footage and one broadcast clip, not yet on real auto-tracking recordings. Handheld footage
+  isn't supported, and a TV broadcast is only analysed for the shot you calibrate.
+- **The player score is about running, not playing well.** It compares players within one match from
+  tracking only. Goals, assists, shots and passes aren't measured yet (they need ball tracking).
+- **Goalkeepers are left out of teams** (their kit differs), so they don't get player cards yet.
 - **Identity switches** split one player into several tracks; the reliability panel reports how often.
 - **Teams are named A and B** (A defends the left goal when first seen); you can't yet mark which is yours.
 - **Processing is slow on consumer GPUs** (about 2.5 h per match on a GTX 1660 Ti).
