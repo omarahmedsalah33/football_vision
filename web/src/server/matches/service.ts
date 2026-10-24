@@ -6,6 +6,7 @@ import { releaseAnalysis } from "../billing/entitlements";
 import type { DbOrTx } from "../db/client";
 import { analysisJobs, calibrations, matches, teams, videos } from "../db/schema";
 import { invalidInput, notFound } from "../http/errors";
+import type { ObjectStorage } from "../storage/s3";
 
 export const createMatchInput = z.object({
   title: z.string().trim().min(2).max(120),
@@ -126,6 +127,29 @@ export async function listMatches(db: DbOrTx, actor: Actor) {
       cals.some((c) => c.matchId === m.id),
     ),
   }));
+}
+
+/**
+ * Short-lived signed URLs for one reference frame per match, for thumbnails in lists. Storage
+ * keys stay on the server; only the signed URLs (10 minutes) reach the browser.
+ */
+export async function matchThumbnails(db: DbOrTx, storage: ObjectStorage, actor: Actor, matchIds: string[]): Promise<Record<string, string>> {
+  assertCan(actor, "match.read");
+  if (matchIds.length === 0) return {};
+  const rows = await db
+    .select({ matchId: videos.matchId, frames: videos.frames })
+    .from(videos)
+    .where(and(eq(videos.orgId, actor.orgId), inArray(videos.matchId, matchIds), eq(videos.status, "validated")))
+    .orderBy(desc(videos.createdAt));
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    const frames = (r.frames as { key: string }[] | null) ?? [];
+    // The middle reference frame usually shows play rather than a kick-off line-up.
+    const frame = frames[Math.floor(frames.length / 2)];
+    if (out[r.matchId] || !frame) continue;
+    out[r.matchId] = await storage.presignGet(frame.key, "image/jpeg", 600);
+  }
+  return out;
 }
 
 export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {

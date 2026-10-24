@@ -8,14 +8,20 @@ export default function UserLayout({ children }: LayoutProps<"/app">) {
   return (
     <AppShell
       sidebar={
-        <div className="flex h-full flex-col gap-6 p-4">
-          <Link href="/app" aria-label="Your workspace">
-            <Logo className="text-lg" />
+        <div className="flex min-h-full flex-col gap-6 p-4">
+          <Link href="/app" aria-label="Your workspace" className="px-1 pt-1">
+            <Logo className="!text-xl" />
           </Link>
           <nav aria-label="Account" className="space-y-1">
-            <NavLink href="/app">Back to my workspace</NavLink>
-            <NavLink href="/app/new">New club workspace</NavLink>
-            <NavLink href="/app/account">Account</NavLink>
+            <NavLink href="/app" icon="home" exact>
+              Back to my workspace
+            </NavLink>
+            <NavLink href="/app/new" icon="club">
+              New club workspace
+            </NavLink>
+            <NavLink href="/app/account" icon="user">
+              Account
+            </NavLink>
           </nav>
         </div>
       }

@@ -90,11 +90,14 @@ test("coach signs in, uploads footage, calibrates the pitch and gets an analysis
   await clerk.signIn({ page, emailAddress: E2E_EMAIL });
 
   await page.goto("/app");
-  await expect(page).toHaveURL(/\/app\/[^/]+\/matches$/);
+  // Signing in lands on the workspace home.
+  await expect(page).toHaveURL(/\/app\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: /^Welcome back/ })).toBeVisible();
+  await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "Matches" }).click();
   await expect(page.getByRole("heading", { name: "Matches", exact: true })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/03-matches.png`, fullPage: true });
 
-  await page.getByRole("link", { name: "New match", exact: true }).click();
+  await page.getByRole("link", { name: "New match", exact: true }).first().click();
   await page.getByLabel("Match title").fill("E2E League: Matchday 1");
   await page.getByLabel(/Opponent/).fill("Riverside FC");
   await page.screenshot({ path: `${SHOTS}/04-new-match.png`, fullPage: true });
@@ -161,9 +164,24 @@ test("coach signs in, uploads footage, calibrates the pitch and gets an analysis
   await expect(page.getByText("How reliable is this?")).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/09-results.png`, fullPage: true });
 
-  await page.getByRole("link", { name: "Matches", exact: true }).click();
+  await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "Matches" }).click();
   await expect(page.getByRole("link", { name: /E2E League: Matchday 1/ }).first()).toBeVisible();
-  await page.screenshot({ path: `${SHOTS}/08-matches-list.png`, fullPage: true });
+  await page.screenshot({ path: `${SHOTS}/10-matches-list.png`, fullPage: true });
+  await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "Home" }).click();
+  await expect(page.getByRole("heading", { name: /^Welcome back/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Latest results" })).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/11-home.png`, fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  // On phones the navigation is a drawer, hidden until the menu button opens it.
+  await expect(page.locator("#app-sidebar")).not.toBeInViewport();
+  await page.screenshot({ path: `${SHOTS}/12-home-mobile.png`, fullPage: true });
+  await page.getByRole("button", { name: "Toggle navigation" }).click();
+  await expect(page.locator("#app-sidebar")).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: `${SHOTS}/13-menu-mobile.png` });
+  await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "Matches" }).click();
+  await expect(page.getByRole("heading", { name: "Matches", exact: true })).toBeVisible();
+  await expect(page.locator("#app-sidebar")).not.toBeInViewport();
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   expect(errors).toEqual([]);
 });
@@ -176,7 +194,7 @@ test("an owner deletes a match after confirming", async ({ page }) => {
 
   const title = `E2E Delete me ${Date.now()}`;
   await page.goto("/app");
-  await page.getByRole("link", { name: "New match", exact: true }).click();
+  await page.getByRole("link", { name: "New match", exact: true }).first().click();
   await page.getByLabel("Match title").fill(title);
   await page.getByRole("button", { name: "Create match" }).click();
   const matchPage = page.getByRole("article");

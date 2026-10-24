@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import { PageHeader } from "@/components/app-ui";
 import { pageActor } from "@/server/auth/page";
 import { can } from "@/server/authz/permissions";
 import { calibrationContext } from "@/server/calibration/service";
@@ -48,18 +49,21 @@ async function Content({ params }: { params: PageProps<"/app/[org]/matches/[matc
 
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-3xl font-bold uppercase tracking-tight">Calibrate pitch</h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted">
-            Show us where the pitch is: pick your pitch type, then click the points we ask for, one at a time. It takes
-            about a minute, and you only need to do it once per camera spot.
-          </p>
-        </div>
-        <Link href={back} className="text-sm text-mindaro underline underline-offset-4">
-          Back to the match
-        </Link>
-      </div>
+      <PageHeader
+        crumbs={[
+          { label: "Home", href: `/app/${actor.orgSlug}` },
+          { label: "Matches", href: `/app/${actor.orgSlug}/matches` },
+          { label: "Match", href: back },
+          { label: "Calibrate" },
+        ]}
+        title="Calibrate pitch"
+        description="Show us where the pitch is: pick your pitch type, then click the points we ask for, one at a time. It takes about a minute, and you only need to do it once per camera spot."
+        actions={
+          <Link href={back} className="text-sm text-mindaro underline underline-offset-4">
+            Back to the match
+          </Link>
+        }
+      />
       <Calibrator
         orgId={actor.orgId}
         matchId={matchId}

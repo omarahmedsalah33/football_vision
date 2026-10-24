@@ -19,7 +19,7 @@ export function AcceptInvitation({ token }: { token: string }) {
           setError(null);
           try {
             const res = await apiPost<{ orgSlug: string }>("/api/invitations/accept", { token });
-            router.push(`/app/${res.orgSlug}/matches`);
+            router.push(`/app/${res.orgSlug}`);
           } catch (err) {
             setError(err instanceof ApiError ? err.message : "Could not accept the invitation.");
             setBusy(false);

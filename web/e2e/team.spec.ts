@@ -37,8 +37,8 @@ test("owner creates a club, invites a coach who joins, then manages and removes 
   await coach.goto(new URL(link).pathname);
   await expect(coach.getByRole("heading", { name: `Join ${clubName}` })).toBeVisible();
   await coach.getByRole("button", { name: "Accept invitation" }).click();
-  await expect(coach).toHaveURL(/\/matches$/);
-  await expect(coach.getByText("Role: coach")).toBeVisible();
+  await expect(coach).toHaveURL(/\/app\/[^/]+$/);
+  await expect(coach.getByText("Club · Coach")).toBeVisible();
 
   // The same link can't be used twice.
   await coach.goto(new URL(link).pathname);
@@ -80,7 +80,7 @@ test("a user can delete their account, which also removes it from the identity p
   const page = await signedIn(browser, email);
   const errors = trackBrowserErrors(page);
   await page.goto("/app"); // first visit creates the local account and personal workspace
-  await expect(page).toHaveURL(/\/matches$/);
+  await expect(page).toHaveURL(/\/app\/[^/]+$/);
 
   await page.goto("/app/account");
   await expect(page.getByText("These workspaces will be deleted")).toBeVisible();

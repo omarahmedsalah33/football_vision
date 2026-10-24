@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { PageHeader } from "@/components/app-ui";
 import { Badge, Card } from "@/components/ui";
 import { pageActor } from "@/server/auth/page";
 import { can } from "@/server/authz/permissions";
@@ -54,8 +55,7 @@ function Meter({ label, used, limit, unit, extra }: { label: string; used: numbe
 export default function SettingsPage({ params }: PageProps<"/app/[org]/settings">) {
   return (
     <div className="mx-auto max-w-5xl">
-      <h1 className="font-display text-3xl font-bold uppercase tracking-tight">Settings</h1>
-      <Suspense fallback={<div className="mt-8 h-64 animate-pulse rounded-xl bg-surface" aria-label="Loading settings" />}>
+      <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-surface" aria-label="Loading settings" />}>
         <Settings params={params} />
       </Suspense>
     </div>
@@ -74,7 +74,12 @@ async function Settings({ params }: { params: PageProps<"/app/[org]/settings">["
   ]);
 
   return (
-    <div className="mt-8 space-y-6">
+    <div className="space-y-6">
+      <PageHeader
+        crumbs={[{ label: "Home", href: `/app/${actor.orgSlug}` }, { label: "Settings" }]}
+        title="Settings"
+        description="Workspace name, plan and usage, activity, and deletion."
+      />
       <Card className="p-6">
         <h2 className="text-lg font-semibold">General</h2>
         {canManage ? (

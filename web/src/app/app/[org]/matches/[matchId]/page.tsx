@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import { PageHeader, Pipeline } from "@/components/app-ui";
 import { MatchStatusBadge, STATUS } from "@/components/match-status";
 import { Badge, ButtonLink, Card } from "@/components/ui";
 import { pageActor } from "@/server/auth/page";
@@ -90,18 +91,16 @@ async function MatchDetailView({ params }: { params: PageProps<"/app/[org]/match
   return (
     <article className="space-y-6">
       <LiveRefresh active={active(prepareJob) || active(analysisJob)} />
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="font-display text-3xl font-bold uppercase tracking-tight">{match.title}</h1>
-          <p className="mt-1 text-sm text-muted">
-            {[match.opponentName && `vs ${match.opponentName}`, match.playedOn, "Fixed wide camera"].filter(Boolean).join(" · ")}
-          </p>
-        </div>
-        <div className="text-right">
-          <MatchStatusBadge status={match.status} />
-          <p className="mt-2 max-w-xs text-sm text-muted">{STATUS[match.status].help}</p>
-        </div>
-      </header>
+      <PageHeader
+        crumbs={[{ label: "Home", href: `/app/${actor.orgSlug}` }, { label: "Matches", href: `/app/${actor.orgSlug}/matches` }, { label: match.title }]}
+        title={match.title}
+        description={[match.opponentName && `vs ${match.opponentName}`, match.playedOn, "Fixed wide camera"].filter(Boolean).join(" · ")}
+        actions={<MatchStatusBadge status={match.status} />}
+      />
+      <section aria-label="Progress" className="rounded-xl border border-border bg-surface/70 px-4 py-4 sm:px-8">
+        <Pipeline status={match.status} />
+        <p className="mt-3 text-center text-sm text-muted">{STATUS[match.status].help}</p>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="p-6">

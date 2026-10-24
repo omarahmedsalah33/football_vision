@@ -9,7 +9,7 @@ export const STATUS: Record<MatchStatus, { label: string; tone: "neutral" | "acc
   needs_calibration: {
     label: "Needs calibration",
     tone: "warning",
-    help: "Mark a few pitch landmarks on a frame so positions can be measured in metres.",
+    help: "Show us where the pitch is by clicking a few points on it, so positions can be measured in metres.",
   },
   ready: { label: "Ready", tone: "neutral", help: "Calibrated. Start the analysis when you're ready." },
   queued: { label: "Queued", tone: "info", help: "Waiting for an analysis worker." },
