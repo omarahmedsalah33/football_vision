@@ -182,7 +182,7 @@ def line_agreement(H_img_to_pitch: np.ndarray, model: np.ndarray, dist: np.ndarr
     return min(scores) if scores else float(hit.mean())
 
 
-def refine_with_lines(H_img_to_pitch: np.ndarray, model: np.ndarray, dist: np.ndarray, usable: np.ndarray) -> np.ndarray | None:
+def refine_with_lines(H_img_to_pitch: np.ndarray, model: np.ndarray, dist: np.ndarray, usable: np.ndarray, cap: float = 8.0) -> np.ndarray | None:
     """Nudges the estimate so the drawn pitch lines sit on the image lines. Returns None when the
     lines don't support a confident correction."""
     from scipy.ndimage import map_coordinates
@@ -203,9 +203,9 @@ def refine_with_lines(H_img_to_pitch: np.ndarray, model: np.ndarray, dist: np.nd
         q, _ = apply_h(correction(p), norm)
         q = q * s + c
         d = map_coordinates(dist, [q[:, 1], q[:, 0]], order=1, mode="nearest")
-        return np.minimum(d, 8.0)
+        return np.minimum(d, cap)
 
-    res = least_squares(residuals, np.zeros(8), loss="soft_l1", f_scale=2.0, max_nfev=60, x_scale=0.01)
+    res = least_squares(residuals, np.zeros(8), loss="soft_l1", f_scale=min(2.0, cap / 3), max_nfev=60, x_scale=0.01)
     C = correction(res.x)
     # Back to pixel coordinates: C_px = T⁻¹ C T, with T the normalisation.
     T = np.array([[1 / s, 0, -c[0] / s], [0, 1 / s, -c[1] / s], [0, 0, 1]])
