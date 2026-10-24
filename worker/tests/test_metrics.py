@@ -3,7 +3,7 @@ import pytest
 
 from fa_worker.analysis.geometry import foot_points, on_pitch, project
 from fa_worker.analysis.metrics import expected_people, frame_shape, min_team_players, team_shape_windows, track_summary
-from fa_worker.analysis.teams import _rgb_to_lab, assign_teams, shirt_colour
+from fa_worker.analysis.teams import SightingBank, _rgb_to_lab, assign_teams, shirt_colour, sighting_quality, track_colour
 
 L, W = 105.0, 68.0
 
@@ -81,24 +81,82 @@ def lab(rgb):
     return _rgb_to_lab(np.array([rgb], dtype=float))[0]
 
 
-def test_teams_split_by_shirt_colour_and_referee_is_other():
-    red, blue, yellow = lab([200, 30, 30]), lab([30, 50, 200]), lab([240, 230, 40])
-    rng = np.random.default_rng(1)
-    samples = {}
+def kit(rgb, rng, shade=1.0):
+    """One clear sighting: (clarity, torso colour) of a kit with noise, on grass."""
+    img = np.zeros((100, 60, 3), dtype=np.uint8)
+    img[:, :] = [40, 140, 50]
+    colour = np.clip(np.array(rgb) * shade + rng.normal(0, 10, (35, 20, 3)), 0, 255)
+    img[15:50, 20:40] = colour.astype(np.uint8)
+    return (80.0, shirt_colour(img, np.array([10, 0, 50, 100])))
+
+
+def match_samples(rng, extra=None):
+    """Ten red and ten blue players, red ones in sun or shade, plus extra tracks; all on screen together."""
+    samples, seen = {}, {}
+    times = [i * 0.25 for i in range(40)]
     for i in range(10):
-        samples[i] = [red + rng.normal(0, 2, 3) for _ in range(5)]
-        samples[100 + i] = [blue + rng.normal(0, 2, 3) for _ in range(5)]
-    samples[999] = [yellow + rng.normal(0, 2, 3) for _ in range(5)]
-    teams, quality = assign_teams(samples)
+        samples[i] = [kit([200, 30, 30], rng, 1.0 if i < 5 else 0.7) for _ in range(5)]
+        samples[100 + i] = [kit([30, 50, 200], rng) for _ in range(5)]
+        seen[i] = seen[100 + i] = times
+    for tid, rgb in (extra or {}).items():
+        samples[tid] = [kit(rgb, rng) for _ in range(5)]
+        seen[tid] = times
+    return samples, seen
+
+
+def test_teams_split_by_shirt_colour_and_officials_are_other():
+    rng = np.random.default_rng(1)
+    samples, seen = match_samples(rng, {999: [240, 230, 40], 998: [250, 120, 20]})  # referee, goalkeeper
+    teams, quality = assign_teams(samples, seen)
     reds = {teams[i] for i in range(10)}
     blues = {teams[100 + i] for i in range(10)}
-    assert len(reds) == 1 and len(blues) == 1 and reds != blues and None not in reds | blues
-    assert teams[999] is None, "a third colour (referee) must not be forced into a team"
-    assert quality["separation"] > 50
+    assert len(reds) == 1 and len(blues) == 1 and reds != blues and None not in reds | blues, "shade doesn't split a team"
+    assert teams[999] is None and teams[998] is None, "a referee or goalkeeper is never forced into a team"
+    assert quality["separation"] > 40
+
+
+def test_the_most_different_colours_dont_hijack_the_teams():
+    # The old method started from the two most different colours (referee vs goalkeeper) and lost the teams.
+    rng = np.random.default_rng(2)
+    samples, seen = match_samples(rng, {997: [255, 255, 0], 996: [255, 100, 0], 995: [10, 10, 10]})
+    teams, _ = assign_teams(samples, seen)
+    assigned = [teams[i] for i in [*range(10), *range(100, 110)]]
+    assert None not in assigned and len(set(assigned)) == 2
+
+
+def test_officials_seen_alone_are_left_out_even_in_a_team_like_colour():
+    # A referee in dark blue, close to one team's colour but never more than one on screen.
+    rng = np.random.default_rng(3)
+    samples, seen = match_samples(rng)
+    for j in range(3):  # three referees' tracks over the match, one at a time
+        samples[900 + j] = [kit([20, 20, 90], rng) for _ in range(5)]
+        seen[900 + j] = [100 + j * 20 + i * 0.25 for i in range(40)]
+    teams, quality = assign_teams(samples, seen)
+    assert all(teams[900 + j] is None for j in range(3))
+    assert quality["officialGroups"] >= 1
+
+
+def test_the_largest_sighting_decides_a_players_colour():
+    bank = SightingBank(keep=3)
+    red, blur = np.array([45.0, 60, 40]), np.array([60.0, 0, 0])
+    for size in (20, 25, 30, 35):  # distant, blurry sightings, recorded first
+        bank.add(1, size, blur)
+    assert bank.wants(1, 90) and not bank.wants(1, 10)
+    bank.add(1, 90, red)
+    assert np.allclose(track_colour(bank.samples([1])[1]), red)
+
+
+def test_overlapped_or_cut_off_sightings_only_count_as_a_fallback():
+    shape = (720, 1280, 3)
+    box = np.array([100, 100, 140, 200])
+    assert sighting_quality(box, np.array([box]), shape) == 100
+    merged = np.array([100, 100, 160, 230])  # bigger, but someone overlaps it
+    assert sighting_quality(merged, np.array([merged, [130, 110, 170, 210]]), shape) < 2
+    assert sighting_quality(np.array([0, 100, 40, 200]), np.array([]), shape) == 1, "cut off by the frame edge"
 
 
 def test_too_few_samples_means_no_team():
-    teams, _ = assign_teams({1: [lab([200, 0, 0])], 2: [lab([0, 0, 200])]})
+    teams, _ = assign_teams({1: [(80.0, lab([200, 0, 0]))], 2: [(80.0, lab([0, 0, 200]))]})
     assert teams == {1: None, 2: None}
 
 

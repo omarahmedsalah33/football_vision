@@ -31,7 +31,6 @@ from .stitch import stitch
 from .teams import assign_teams
 from .tracker import ByteTrackTracker
 
-COLOUR_SAMPLES_PER_TRACK = 20
 MIN_TRACK_SECONDS = 2.0  # shorter tracks are noise: false detections, fragments
 CANVAS_PX_PER_M = 10.0  # moving camera: players are tracked on a top-down canvas of the pitch
 CANVAS_BOX_M = 2.5  # box size on that canvas: big enough to overlap between samples while running
@@ -159,12 +158,14 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
     followed_frames = 0
 
     observations: dict[int, list[tuple[float, float, float]]] = defaultdict(list)
-    colours: dict[int, list[np.ndarray]] = defaultdict(list)
     crops: dict[int, tuple[float, np.ndarray]] = {}
     per_frame: list[tuple[float, list[tuple[int, float, float, list[float]]]]] = []
     people_per_frame: list[int] = []
 
-    from .teams import shirt_colour
+    from .teams import METHOD as TEAMS_METHOD
+    from .teams import SightingBank, shirt_colour, sighting_quality
+
+    sightings = SightingBank()
 
     with av.open(str(video)) as container:
         stream = container.streams.video[0]
@@ -230,10 +231,12 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
                     continue
                 observations[int(tid)].append((t, float(xy[0]), float(xy[1])))
                 frame_players.append((int(tid), float(xy[0]), float(xy[1]), [round(float(v), 1) for v in box]))
-                if len(colours[int(tid)]) < COLOUR_SAMPLES_PER_TRACK and frame_index % 2 == 0:
+                # Keep the colour of each player's clearest sightings (largest, nobody overlapping).
+                clarity = sighting_quality(box, tracked_xyxy, image.shape)
+                if sightings.wants(int(tid), clarity):
                     c = shirt_colour(image, box)
                     if c is not None:
-                        colours[int(tid)].append(c)
+                        sightings.add(int(tid), clarity, c)
                 if frame_index % 4 == 0:
                     got = _crop(image, box, tracked_xyxy)
                     if got is not None and got[0] > crops.get(int(tid), (0.0, None))[0]:
@@ -247,7 +250,10 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
     progress("teams", 0.87)
     dt = 1.0 / sample_fps
     long_tracks = {tid for tid, obs in observations.items() if obs[-1][0] - obs[0][0] >= MIN_TRACK_SECONDS}
-    raw_teams, team_quality = assign_teams({tid: colours.get(tid, []) for tid in long_tracks})
+    raw_teams, team_quality = assign_teams(
+        sightings.samples(long_tracks),
+        {tid: [o[0] for o in observations[tid]] for tid in long_tracks},
+    )
 
     # Name clusters by side: team "a" is the one defending the left goal in the first minutes.
     early = defaultdict(list)
@@ -302,7 +308,7 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
         "models": {
             "detector": detector.version,
             "tracker": tracker.version + (":pitch-canvas" if moving else ""),
-            "teams": "lab-median-2means-v1",
+            "teams": TEAMS_METHOD,
             **({"camera": follower.version} if follower is not None else {}),
         },
         "settings": {"sampleFps": sample_fps, "windowSeconds": WINDOW_S},
