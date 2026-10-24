@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import type { Diagram } from "@/lib/development/diagram";
 import { dimensionByKey } from "@/lib/development/framework";
+import { DrillDiagram } from "./drill-diagram";
 import { DIFFICULTY_LABEL, type DrillContent } from "@/lib/development/drills";
 import { Badge } from "./ui";
 
@@ -17,7 +19,18 @@ export function DrillMeta({ drill }: { drill: DrillContent }) {
 }
 
 /** Everything needed to run a drill: steps, coaching points, progressions, success, safety. */
-export function DrillBody({ drill }: { drill: DrillContent }) {
+export function DrillBody({ drill, diagram }: { drill: DrillContent; diagram?: Diagram | null }) {
+  const text = <DrillText drill={drill} />;
+  if (!diagram) return text;
+  return (
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+      <DrillDiagram diagram={diagram} title={drill.title} />
+      {text}
+    </div>
+  );
+}
+
+function DrillText({ drill }: { drill: DrillContent }) {
   return (
     <div className="space-y-4 text-sm">
       {drill.equipment.length > 0 && (
@@ -79,7 +92,7 @@ export function DimensionChips({ keys }: { keys: string[] }) {
 }
 
 /** A drill with its details folded away; `footer` (e.g. logging a session) always stays visible. */
-export function DrillCard({ drill, badge, actions, footer, open = false }: { drill: DrillContent & { source?: "starter" | "custom" }; badge?: ReactNode; actions?: ReactNode; footer?: ReactNode; open?: boolean }) {
+export function DrillCard({ drill, diagram, badge, actions, footer, open = false }: { drill: DrillContent & { source?: "starter" | "custom" }; diagram?: Diagram | null; badge?: ReactNode; actions?: ReactNode; footer?: ReactNode; open?: boolean }) {
   return (
     <div className="rounded-xl border border-border bg-bg/40 has-[details[open]]:bg-bg/70">
       <details open={open} className="group p-4">
@@ -94,14 +107,14 @@ export function DrillCard({ drill, badge, actions, footer, open = false }: { dri
             <DrillMeta drill={drill} />
           </span>
           <span aria-hidden="true" className="mt-1 text-xs text-mindaro group-open:hidden">
-            Show drill ▾
+            {diagram ? "Show drill and animation ▾" : "Show drill ▾"}
           </span>
           <span aria-hidden="true" className="mt-1 hidden text-xs text-mindaro group-open:inline">
             Hide ▴
           </span>
         </summary>
         <div className="mt-4 border-t border-border pt-4">
-          <DrillBody drill={drill} />
+          <DrillBody drill={drill} diagram={diagram} />
           {actions && <div className="mt-4 flex flex-wrap gap-2">{actions}</div>}
         </div>
       </details>

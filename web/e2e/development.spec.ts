@@ -27,7 +27,11 @@ test("a player goes from match evidence to a training plan, logs a session and r
     await page.goto("/");
     await clerk.signIn({ page, emailAddress: email });
     await page.goto("/app");
-    await page.getByRole("radio", { name: /I'm a player/ }).click();
+    // Retry until the page is interactive: a click before hydration does nothing.
+    await expect(async () => {
+      await page.getByRole("radio", { name: /I'm a player/ }).click();
+      await expect(page.getByRole("heading", { name: "Your player profile" })).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
     await page.getByRole("radio", { name: "Midfielder" }).click();
     await page.getByRole("button", { name: "Create my profile" }).click();
     await expect(page.getByRole("heading", { name: "My profile" })).toBeVisible();
@@ -94,7 +98,23 @@ test("a player goes from match evidence to a training plan, logs a session and r
     const drill = page.getByRole("listitem").filter({ hasText: "Scan before you receive" });
     await drill.getByText("Scan before you receive").click();
     await expect(drill.getByText("Success looks like:")).toBeVisible();
+    // The animated diagram: plays by itself, steps can be picked, captions follow the drill.
+    await expect(drill.getByRole("img", { name: /^Diagram of Scan before you receive/ })).toBeVisible();
+    await expect(drill.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+    await drill.getByRole("button", { name: /^Step 2:/ }).click();
+    await expect(drill.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+    await expect(drill.getByText("Check over your shoulder and call out the cue before the ball arrives.")).toBeVisible();
+    await drill.locator("figure").screenshot({ path: `${SHOTS}/21-drill-diagram.png` });
     await noSeriousA11yIssues(page);
+
+    // Still signed in on the public site: the header offers the app, sign-in pages send you back to it.
+    await page.goto("/");
+    const header = page.getByRole("navigation", { name: "Main" });
+    await expect(header.getByRole("link", { name: "Open app" })).toBeVisible();
+    await expect(header.getByRole("link", { name: "Sign in" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Open your workspace" }).first()).toBeVisible();
+    await page.goto("/sign-in");
+    await expect(page).toHaveURL(/\/app\/[^/]+$/);
 
     expect(errors).toEqual([]);
   } finally {

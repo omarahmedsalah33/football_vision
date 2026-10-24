@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { StartButton } from "@/components/marketing/account-actions";
 import { SampleReport } from "@/components/marketing/sample-report";
 import { VisionHero } from "@/components/marketing/vision-hero";
 import { Badge, ButtonLink, Card, CornerMarks } from "@/components/ui";
@@ -143,9 +144,7 @@ export default function Home() {
                 academies, clubs, coaches, scouts and players.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <ButtonLink href="/sign-up" className="px-6 text-base">
-                  Start free
-                </ButtonLink>
+                <StartButton className="px-6 text-base" />
                 <ButtonLink href="#how" variant="secondary" className="px-6 text-base">
                   See how it works
                 </ButtonLink>
@@ -309,9 +308,7 @@ export default function Home() {
               Start free with one match. Upload it and see what&apos;s ready today.
             </p>
             <div className="mt-8 flex justify-center">
-              <ButtonLink href="/sign-up" className="px-7 text-base">
-                Start free
-              </ButtonLink>
+              <StartButton className="px-7 text-base" />
             </div>
           </div>
         </section>

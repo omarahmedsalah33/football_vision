@@ -7,6 +7,7 @@ import { DrillCard } from "@/components/drill-ui";
 import { ProfileTabs } from "@/components/player-ui";
 import { Badge, Card, CornerMarks } from "@/components/ui";
 import { CATEGORY_LABEL, DIMENSIONS, RATING_LABEL, type Category } from "@/lib/development/framework";
+import { diagramFor } from "@/lib/development/diagrams";
 import type { ProgressStatus } from "@/lib/development/progress";
 import { CONFIDENCE_TEXT, latestRatings, type Confidence } from "@/lib/development/recommend";
 import { pageActor } from "@/server/auth/page";
@@ -339,6 +340,7 @@ function ActivePlan({ plan, orgId, today, canManage, canLog, self }: { plan: Pla
             <li key={e.id}>
               <DrillCard
                 drill={e.drill}
+                diagram={diagramFor(e.drillKey)}
                 badge={
                   <Badge tone={e.thisWeek >= e.sessionsPerWeek ? "accent" : "neutral"}>
                     {e.thisWeek}/{e.sessionsPerWeek} this week

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { PageHeader } from "@/components/app-ui";
 import { DimensionChips, DrillCard } from "@/components/drill-ui";
+import { diagramFor } from "@/lib/development/diagrams";
 import { CATEGORY_LABEL, DIMENSIONS, dimensionByKey, type Category } from "@/lib/development/framework";
 import { pageActor } from "@/server/auth/page";
 import { can } from "@/server/authz/permissions";
@@ -64,6 +65,7 @@ async function Library({ params, searchParams }: Pick<PageProps<"/app/[org]/trai
           <li key={d.key}>
             <DrillCard
               drill={d}
+              diagram={diagramFor(d.key)}
               badge={<DimensionChips keys={d.dimensions} />}
               actions={d.source === "custom" && canAdd ? <ArchiveDrillButton orgId={actor.orgId} drillId={d.key} /> : undefined}
             />

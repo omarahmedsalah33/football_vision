@@ -1,6 +1,8 @@
+import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ButtonLink, CornerMarks, Logo } from "../ui";
+import { isSignedIn } from "./account-actions";
 
 const NAV = [
   { href: "/#how", label: "How it works" },
@@ -10,7 +12,9 @@ const NAV = [
   { href: "/about", label: "About" },
 ];
 
-export function SiteHeader() {
+export async function SiteHeader() {
+  const signedIn = await isSignedIn();
+  const account = signedIn ? { href: "/app", label: "Open app" } : { href: "/sign-in", label: "Sign in" };
   return (
     <header className="sticky top-0 z-30 border-b border-border/70 bg-bg/85 backdrop-blur">
       <nav aria-label="Main" className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3.5 sm:px-6">
@@ -25,10 +29,21 @@ export function SiteHeader() {
           ))}
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
-          <ButtonLink href="/sign-in" variant="ghost" className="hidden sm:inline-flex">
-            Sign in
-          </ButtonLink>
-          <ButtonLink href="/sign-up">Get started</ButtonLink>
+          {signedIn ? (
+            <>
+              <ButtonLink href="/app">Open app</ButtonLink>
+              <span className="grid h-10 w-10 place-items-center">
+                <UserButton />
+              </span>
+            </>
+          ) : (
+            <>
+              <ButtonLink href="/sign-in" variant="ghost" className="hidden sm:inline-flex">
+                Sign in
+              </ButtonLink>
+              <ButtonLink href="/sign-up">Get started</ButtonLink>
+            </>
+          )}
           {/* Works without JavaScript. */}
           <details className="group relative lg:hidden">
             <summary className="grid h-10 w-10 cursor-pointer list-none place-items-center rounded-lg border border-border text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
@@ -38,7 +53,7 @@ export function SiteHeader() {
               </svg>
             </summary>
             <div className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-surface p-2 shadow-2xl">
-              {[...NAV, { href: "/sign-in", label: "Sign in" }].map((n) => (
+              {[...NAV, account].map((n) => (
                 <Link key={n.href} href={n.href} className="block rounded-lg px-3 py-2.5 text-sm hover:bg-surface-2">
                   {n.label}
                 </Link>

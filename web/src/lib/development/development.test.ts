@@ -4,6 +4,8 @@ import { DIMENSIONS, POSSIBLE_CAUSES } from "./framework";
 import { drillsFor, STARTER_DRILLS } from "./drills";
 import { defaultTarget, measuredBaseline, objectiveProgress, sessionsPlanned, weekStart } from "./progress";
 import { recommend, type Observation } from "./recommend";
+import { actorRadius, along, diagramProblems, stateIn, stepStarts } from "./diagram";
+import { DIAGRAMS, diagramFor } from "./diagrams";
 
 function perf(date: string, o: Partial<MatchPerformance> = {}): MatchPerformance {
   return {
@@ -126,5 +128,27 @@ describe("progress", () => {
     expect(sessionsPlanned("2026-10-01", "2026-12-01", 2, "2026-10-14")).toBe(4);
     expect(sessionsPlanned("2026-10-05", "2026-10-01", 2)).toBe(0);
     expect(weekStart("2026-10-24")).toBe("2026-10-19");
+  });
+});
+
+describe("drill diagrams", () => {
+  it("every starter drill has a diagram that is consistent with itself", () => {
+    for (const d of STARTER_DRILLS) {
+      const diagram = diagramFor(d.key);
+      expect(diagram, d.key).not.toBeNull();
+      expect(diagramProblems(diagram!), d.key).toEqual([]);
+    }
+    expect(diagramFor("3f1c0a8e-0000-4000-8000-000000000000")).toBeNull(); // club drills have none
+  });
+
+  it("moves players along their path and keeps a carried ball at their feet", () => {
+    expect(along([[0, 0], [10, 0], [10, 10]], 0.75)).toEqual([10, 5]);
+    const d = DIAGRAMS["cone-slalom"];
+    const [start, afterFirst] = stepStarts(d);
+    expect(start.actors.a).toEqual([0.3, 3]);
+    expect(afterFirst.actors.a).toEqual([10.4, 3]);
+    const mid = stateIn(d, start, 0, 0.5);
+    const gap = Math.hypot(mid.ball![0] - mid.actors.a[0], mid.ball![1] - mid.actors.a[1]);
+    expect(gap).toBeCloseTo(actorRadius(d) * 1.25, 5);
   });
 });
