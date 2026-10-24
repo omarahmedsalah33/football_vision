@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Pitch } from "@/components/pitch";
+import { hasStandardBoxes } from "@/lib/pitch/landmarks";
 import { Badge, Card } from "@/components/ui";
 import type { AnalysisSummary, Provenance } from "@/server/analysis/results";
 
@@ -161,10 +162,11 @@ function Legend() {
 
 export function ResultsView({ summary, tracks }: { summary: AnalysisSummary; tracks: Track[] }) {
   const [heatTeam, setHeatTeam] = useState<"a" | "b">("a");
-  const { length: L, width: Wd } = summary.pitch;
-  // Pitch graphics are drawn at 105 × 68; scale real-pitch metres onto it.
-  const sx = 105 / L;
-  const sy = 68 / Wd;
+  const { length: L, width: Wd, playersPerSide } = summary.pitch;
+  const pitchSize = { length: L, width: Wd };
+  const boxes = hasStandardBoxes(pitchSize, playersPerSide);
+  // Drawings are in real metres; markers scale with the pitch so they stay readable on small pitches.
+  const u = L / 105;
   // "Regular" tracks: on camera for at least a minute, or half the clip when the clip is shorter.
   const minSeconds = Math.min(60, 0.5 * summary.durationSeconds);
   const regular = tracks.filter((t) => t.team !== "other" && t.lastSeconds - t.firstSeconds >= minSeconds && t.coverage >= 0.3 && t.avgX != null);
@@ -183,8 +185,8 @@ export function ResultsView({ summary, tracks }: { summary: AnalysisSummary; tra
     const max = Math.max(1, ...sum.flat().filter(Number.isFinite));
     return { sum, max };
   }, [tracks, heatTeam]);
-  const cellW = (5 * sx);
-  const cellH = (5 * sy);
+  const cellW = 5;
+  const cellH = 5;
 
   return (
     <>
@@ -243,25 +245,25 @@ export function ResultsView({ summary, tracks }: { summary: AnalysisSummary; tra
             Tracks seen for at least {minSeconds >= 60 ? "a minute" : `${Math.round(minSeconds)} seconds`}. Team A ●, Team B ◆.
             Numbers are track ids, not shirt numbers.
           </p>
-          <Pitch title="Average positions of tracked players, Team A and Team B" className="mt-3 w-full">
+          <Pitch title="Average positions of tracked players, Team A and Team B" className="mt-3 w-full" size={pitchSize} boxes={boxes}>
             {regular.map((t) => (
               <g key={t.trackNo}>
                 {/* Shape is a second, colour-independent cue: Team A circles, Team B diamonds. */}
                 {t.team === "a" ? (
-                  <circle cx={t.avgX! * sx} cy={t.avgY! * sy} r={1.8} fill="var(--mindaro)" stroke="var(--bg-brand)" strokeWidth={0.4} />
+                  <circle cx={t.avgX!} cy={t.avgY!} r={1.8 * u} fill="var(--mindaro)" stroke="var(--bg-brand)" strokeWidth={0.4 * u} />
                 ) : (
                   <rect
-                    x={t.avgX! * sx - 1.55}
-                    y={t.avgY! * sy - 1.55}
-                    width={3.1}
-                    height={3.1}
-                    transform={`rotate(45 ${t.avgX! * sx} ${t.avgY! * sy})`}
+                    x={t.avgX! - 1.55 * u}
+                    y={t.avgY! - 1.55 * u}
+                    width={3.1 * u}
+                    height={3.1 * u}
+                    transform={`rotate(45 ${t.avgX!} ${t.avgY!})`}
                     fill="var(--gold)"
                     stroke="var(--bg-brand)"
-                    strokeWidth={0.4}
+                    strokeWidth={0.4 * u}
                   />
                 )}
-                <text x={t.avgX! * sx} y={t.avgY! * sy + 0.9} textAnchor="middle" fontSize={1.9} fill="var(--bg-brand)" style={{ fontFamily: "var(--font-jetbrains)", fontWeight: 700 }}>
+                <text x={t.avgX!} y={t.avgY! + 0.9 * u} textAnchor="middle" fontSize={1.9 * u} fill="var(--bg-brand)" style={{ fontFamily: "var(--font-jetbrains)", fontWeight: 700 }}>
                   {t.trackNo}
                 </text>
               </g>
@@ -288,7 +290,7 @@ export function ResultsView({ summary, tracks }: { summary: AnalysisSummary; tra
               </button>
             ))}
           </div>
-          <Pitch title={`Heatmap of ${TEAM[heatTeam].name}: time spent in each 5-metre area`} className="mt-3 w-full">
+          <Pitch title={`Heatmap of ${TEAM[heatTeam].name}: time spent in each 5-metre area`} className="mt-3 w-full" size={pitchSize} boxes={boxes}>
             {heat.sum.flatMap((row, iy) =>
               row.map((v, ix) =>
                 v ? (

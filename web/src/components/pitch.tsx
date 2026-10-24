@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 /** Pitch dimensions in metres. Overlays are drawn in this coordinate system (x: 0–105, y: 0–68). */
 export const PITCH = { length: 105, width: 68 } as const;
@@ -6,35 +6,51 @@ export const PITCH = { length: 105, width: 68 } as const;
 const PAD = 3;
 
 /**
- * Football pitch with FIFA-standard markings. Children are SVG elements positioned in pitch
- * metres, so analytics overlays share one documented coordinate system with the worker output.
+ * Football pitch drawn in real metres. Children are SVG elements positioned in pitch metres, so
+ * analytics overlays share one documented coordinate system with the worker output. Penalty boxes
+ * and goal areas are only drawn on full-size pitches; small-sided pitches have no standard boxes.
  */
-export function Pitch({ children, title, className }: { children?: ReactNode; title: string; className?: string }) {
-  const { length: L, width: W } = PITCH;
-  const line = { fill: "none", stroke: "var(--pitch-line)", strokeWidth: 0.3 } as const;
+export function Pitch({
+  children,
+  title,
+  className,
+  size = PITCH,
+  boxes = true,
+}: {
+  children?: ReactNode;
+  title: string;
+  className?: string;
+  size?: { length: number; width: number };
+  boxes?: boolean;
+}) {
+  const { length: L, width: W } = size;
+  const u = L / PITCH.length; // line widths and stripes scale with the pitch
+  const stripe = L / 20;
+  const line = { fill: "none", stroke: "var(--pitch-line)", strokeWidth: 0.3 * u } as const;
+  const patternId = `pitch-stripes-${useId().replace(/:/g, "")}`;
   const penW = 40.32;
   const goalAreaW = 18.32;
   return (
     <svg
-      viewBox={`${-PAD} ${-PAD} ${L + PAD * 2} ${W + PAD * 2}`}
+      viewBox={`${-PAD * u} ${-PAD * u} ${L + PAD * u * 2} ${W + PAD * u * 2}`}
       role="img"
       aria-label={title}
       className={className}
     >
       <title>{title}</title>
       <defs>
-        <pattern id="pitch-stripes" width="10.5" height={W} patternUnits="userSpaceOnUse">
-          <rect width="5.25" height={W} style={{ fill: "color-mix(in srgb, var(--forest) 78%, var(--lush))" }} />
-          <rect x="5.25" width="5.25" height={W} style={{ fill: "color-mix(in srgb, var(--forest) 90%, var(--lush))" }} />
+        <pattern id={patternId} width={stripe * 2} height={W} patternUnits="userSpaceOnUse">
+          <rect width={stripe} height={W} style={{ fill: "color-mix(in srgb, var(--forest) 78%, var(--lush))" }} />
+          <rect x={stripe} width={stripe} height={W} style={{ fill: "color-mix(in srgb, var(--forest) 90%, var(--lush))" }} />
         </pattern>
       </defs>
-      <rect x={-PAD} y={-PAD} width={L + PAD * 2} height={W + PAD * 2} rx="2" style={{ fill: "var(--forest)" }} />
-      <rect width={L} height={W} fill="url(#pitch-stripes)" />
+      <rect x={-PAD * u} y={-PAD * u} width={L + PAD * u * 2} height={W + PAD * u * 2} rx={2 * u} style={{ fill: "var(--forest)" }} />
+      <rect width={L} height={W} fill={`url(#${patternId})`} />
       <rect width={L} height={W} {...line} />
       <line x1={L / 2} y1={0} x2={L / 2} y2={W} {...line} />
-      <circle cx={L / 2} cy={W / 2} r={9.15} {...line} />
-      <circle cx={L / 2} cy={W / 2} r={0.4} fill="var(--pitch-line)" />
-      {[0, 1].map((side) => {
+      {boxes && <circle cx={L / 2} cy={W / 2} r={9.15} {...line} />}
+      <circle cx={L / 2} cy={W / 2} r={0.4 * u} fill="var(--pitch-line)" />
+      {boxes && [0, 1].map((side) => {
         const x = side === 0 ? 0 : L;
         const dir = side === 0 ? 1 : -1;
         const penX = side === 0 ? 0 : L - 16.5;

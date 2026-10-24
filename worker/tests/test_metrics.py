@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from fa_worker.analysis.geometry import foot_points, on_pitch, project
-from fa_worker.analysis.metrics import frame_shape, team_shape_windows, track_summary
+from fa_worker.analysis.metrics import expected_people, frame_shape, min_team_players, team_shape_windows, track_summary
 from fa_worker.analysis.teams import _rgb_to_lab, assign_teams, shirt_colour
 
 L, W = 105.0, 68.0
@@ -108,3 +108,26 @@ def test_shirt_colour_ignores_grass():
     img[15:50, 20:40] = [200, 30, 30]  # red shirt on the torso
     c = shirt_colour(img, np.array([10, 0, 50, 100]))
     assert np.linalg.norm(c - lab([200, 30, 30])) < 5
+
+
+def test_player_thresholds_follow_the_pitch_format():
+    assert min_team_players(11) == 8, "unchanged for full-size football"
+    assert min_team_players(7) == 5
+    assert min_team_players(5) == 4
+    assert expected_people(11) == 25
+    assert expected_people(5) == 11
+
+
+def test_small_sided_team_shape_is_measured_with_five_players():
+    # 5-a-side on a 40 × 20 m pitch: keeper plus a 2-2 outfield.
+    team = np.array([(2, 10), (10, 4), (10, 16), (22, 6), (22, 14)], dtype=float)
+    s = frame_shape(team, defends_left=True, length=40, players_per_side=5)
+    assert s is not None
+    assert s["width"] == pytest.approx(12)  # 4 → 16, keeper excluded
+    assert s["depth"] == pytest.approx(12)  # 10 → 22
+    assert frame_shape(team, defends_left=True, length=40) is None, "with 11-a-side rules, 5 players are too few"
+    assert frame_shape(team[:3], defends_left=True, length=40, players_per_side=5) is None, "3 of 5 is not a team shape"
+
+    frames = [(t * 0.25, {"a": team, "b": team.copy()}) for t in range(40)]
+    windows = team_shape_windows(frames, 40, window_s=10, players_per_side=5)
+    assert windows[0]["a"] is not None and windows[0]["b"] is not None

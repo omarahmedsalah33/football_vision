@@ -6,36 +6,150 @@ import { Badge, Button, Card } from "@/components/ui";
 import { apiPost, ApiError } from "@/lib/api-client";
 import {
   apply,
+  assertPlausible,
   CalibrationError,
   fitHomography,
   invert,
-  leaveOneOutError,
-  residuals,
   rmsError,
   type Correspondence,
   type Mat3,
   type Vec2,
 } from "@/lib/pitch/homography";
-import { LANDMARK_BY_ID, LANDMARKS, pitchSegments } from "@/lib/pitch/landmarks";
+import {
+  guidedOrder,
+  hasStandardBoxes,
+  LANDMARK_BY_ID,
+  LANDMARK_HINT,
+  landmarksFor,
+  PITCH_FORMATS,
+  pitchSegments,
+  type PitchSize,
+} from "@/lib/pitch/landmarks";
 
 type Frame = { timeSeconds: number; width: number; height: number; url: string };
-type Fit =
-  | { ok: true; H: Mat3; inverse: Mat3; rms: number; loo: number | null; res: number[] }
-  | { ok: false; problem: string };
-type Saved = { points: { landmark: string; image: [number, number] }[]; pitchLength: number; pitchWidth: number } | null;
+type Saved = {
+  points: { landmark: string; image: [number, number] }[];
+  pitchLength: number;
+  pitchWidth: number;
+  playersPerSide: number;
+};
+type Reusable = Saved & { id: string; matchTitle: string; playedOn: string | null; createdAt: Date | string };
 
+type Fit =
+  | { ok: true; H: Mat3; inverse: Mat3; rms: number; loo: number | null; looEach: (number | null)[] }
+  | { ok: false; problem: string };
+
+const MIN_POINTS = 5;
 const GOOD_M = 1;
 const MAX_M = 3;
-const GROUPS = ["Centre", "Left half", "Right half"];
 
-function without<T>(record: Record<string, T>, key: string): Record<string, T> {
-  const copy = { ...record };
-  delete copy[key];
-  return copy;
+function formatFor(playersPerSide: number) {
+  return PITCH_FORMATS.find((f) => f.playersPerSide === playersPerSide) ?? (playersPerSide >= 9 ? PITCH_FORMATS[1] : playersPerSide >= 7 ? PITCH_FORMATS[2] : PITCH_FORMATS[3]);
 }
 
-function qualityTone(m: number) {
-  return m <= GOOD_M ? "accent" : m <= MAX_M ? "warning" : "danger";
+function hint(id: string) {
+  return LANDMARK_HINT[id] ?? LANDMARK_BY_ID.get(id)?.label.toLowerCase() ?? id;
+}
+
+function mmss(s: number) {
+  return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+}
+
+/** Fit plus a per-point check: each point predicted from a fit made without it. */
+function computeFit(cs: Correspondence[], size: PitchSize): Fit | null {
+  if (cs.length < 4) return null;
+  try {
+    const H = fitHomography(cs);
+    assertPlausible(H, size);
+    const looEach =
+      cs.length >= MIN_POINTS
+        ? cs.map((c, i) => {
+            try {
+              const Hi = fitHomography(cs.filter((_, j) => j !== i));
+              const q = apply(Hi, c.image);
+              return Math.hypot(q[0] - c.pitch[0], q[1] - c.pitch[1]);
+            } catch {
+              return null;
+            }
+          })
+        : cs.map(() => null);
+    const valid = looEach.filter((e): e is number => e !== null);
+    const loo = cs.length >= MIN_POINTS && valid.length === cs.length ? Math.sqrt(valid.reduce((s, e) => s + e * e, 0) / valid.length) : null;
+    return { ok: true, H, inverse: invert(H), rms: rmsError(H, cs), loo, looEach };
+  } catch (err) {
+    return { ok: false, problem: err instanceof CalibrationError ? err.message : "These points can't be fitted." };
+  }
+}
+
+/** Small top-down pitch showing which point to click next. Dots are buttons so any point can be redone. */
+function PitchGuide({
+  size,
+  boxes,
+  ids,
+  placed,
+  skipped,
+  current,
+  bad,
+  onSelect,
+}: {
+  size: PitchSize;
+  boxes: boolean;
+  ids: string[];
+  placed: Set<string>;
+  skipped: Set<string>;
+  current: string | null;
+  bad: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const u = size.length / 105;
+  const pad = 8 * u;
+  return (
+    <svg viewBox={`${-pad} ${-pad} ${size.length + 2 * pad} ${size.width + 2 * pad}`} className="w-full" aria-label="Pitch drawing: far touchline at the top, near touchline (closest to the camera) at the bottom">
+      <rect x={-pad} y={-pad} width={size.length + 2 * pad} height={size.width + 2 * pad} rx={2 * u} fill="var(--forest)" />
+      {pitchSegments(size, boxes).map(([a, b], i) => (
+        <line key={i} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="var(--pitch-line)" strokeWidth={0.5 * u} />
+      ))}
+      {boxes && <circle cx={size.length / 2} cy={size.width / 2} r={9.15} fill="none" stroke="var(--pitch-line)" strokeWidth={0.5 * u} />}
+      <text x={size.length / 2} y={-pad * 0.45} textAnchor="middle" fontSize={3 * u} fill="var(--cascade)">
+        FAR SIDE
+      </text>
+      <text x={size.length / 2} y={size.width + pad * 0.8} textAnchor="middle" fontSize={3 * u} fill="var(--cascade)">
+        NEAR SIDE (CAMERA)
+      </text>
+      {ids.map((id) => {
+        const [x, y] = LANDMARK_BY_ID.get(id)!.at(size);
+        const isCurrent = id === current;
+        const state = id === bad ? "needs fixing" : placed.has(id) ? "placed" : skipped.has(id) ? "skipped" : "not placed";
+        const fill = id === bad ? "var(--danger)" : placed.has(id) ? "var(--mindaro)" : "none";
+        const stroke = id === bad ? "var(--danger)" : placed.has(id) ? "var(--mindaro)" : skipped.has(id) ? "var(--pitchline)" : "var(--cascade)";
+        return (
+          <g
+            key={id}
+            role="button"
+            tabIndex={0}
+            aria-label={`Select ${hint(id)} (${state})`}
+            aria-pressed={isCurrent}
+            onClick={() => onSelect(id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect(id);
+              }
+            }}
+            className="cursor-pointer outline-none [&:focus-visible>circle:last-child]:stroke-[var(--white)]"
+          >
+            {isCurrent && (
+              <circle cx={x} cy={y} r={3.2 * u} fill="none" stroke="var(--gold)" strokeWidth={0.7 * u}>
+                <animate attributeName="r" values={`${2.4 * u};${4 * u};${2.4 * u}`} dur="1.4s" repeatCount="indefinite" />
+              </circle>
+            )}
+            <circle cx={x} cy={y} r={4 * u} fill="transparent" />
+            <circle cx={x} cy={y} r={1.6 * u} fill={isCurrent && !placed.has(id) ? "var(--gold)" : fill} stroke={isCurrent ? "var(--gold)" : stroke} strokeWidth={0.6 * u} />
+          </g>
+        );
+      })}
+    </svg>
+  );
 }
 
 export function Calibrator({
@@ -47,6 +161,7 @@ export function Calibrator({
   height,
   frames,
   initial,
+  reusable,
 }: {
   orgId: string;
   matchId: string;
@@ -55,75 +170,115 @@ export function Calibrator({
   width: number;
   height: number;
   frames: Frame[];
-  initial: Saved;
+  initial: Saved | null;
+  reusable: Reusable[];
 }) {
   const router = useRouter();
   const svgRef = useRef<SVGSVGElement>(null);
+  const [step, setStep] = useState<"pitch" | "points">(initial || !canEdit ? "points" : "pitch");
+  const [formatId, setFormatId] = useState(formatFor(initial?.playersPerSide ?? 11).id);
+  const format = PITCH_FORMATS.find((f) => f.id === formatId)!;
+  const [playersPerSide, setPlayersPerSide] = useState<number>(initial?.playersPerSide ?? 11);
+  const [size, setSize] = useState<PitchSize>(initial ? { length: initial.pitchLength, width: initial.pitchWidth } : format.size);
+  const [points, setPoints] = useState<Record<string, Vec2>>(() => Object.fromEntries((initial?.points ?? []).map((p) => [p.landmark, p.image])));
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [lastPlaced, setLastPlaced] = useState<string | null>(null);
   const [frameIdx, setFrameIdx] = useState(0);
   const [zoom, setZoom] = useState(1);
-  const [pitch, setPitch] = useState({ length: initial?.pitchLength ?? 105, width: initial?.pitchWidth ?? 68 });
-  const [points, setPoints] = useState<Record<string, Vec2>>(() =>
-    Object.fromEntries((initial?.points ?? []).map((p) => [p.landmark, p.image])),
-  );
-  const [selected, setSelected] = useState<string>(LANDMARKS[0].id);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const boxes = hasStandardBoxes(size, playersPerSide);
+  const order = useMemo(() => guidedOrder(size, playersPerSide).map((l) => l.id), [size, playersPerSide]);
+  const allowed = useMemo(() => new Set(landmarksFor(size, playersPerSide).map((l) => l.id)), [size, playersPerSide]);
+  const placedIds = useMemo(() => Object.keys(points).filter((id) => allowed.has(id)), [points, allowed]);
+  const placed = useMemo(() => new Set(placedIds), [placedIds]);
+  const nextInOrder = order.find((id) => !placed.has(id) && !skipped.has(id)) ?? null;
+  const current = chosen ?? nextInOrder;
+
   const correspondences: (Correspondence & { landmark: string })[] = useMemo(
-    () =>
-      Object.entries(points).map(([landmark, image]) => ({
-        landmark,
-        image,
-        pitch: LANDMARK_BY_ID.get(landmark)!.at(pitch),
-      })),
-    [points, pitch],
+    () => placedIds.map((landmark) => ({ landmark, image: points[landmark], pitch: LANDMARK_BY_ID.get(landmark)!.at(size) })),
+    [placedIds, points, size],
   );
+  const fit = useMemo(() => computeFit(correspondences, size), [correspondences, size]);
+  const enough = correspondences.length >= MIN_POINTS;
+  const quality = fit?.ok && enough ? fit.loo : null;
+  const worst =
+    fit?.ok && quality !== null && quality > GOOD_M
+      ? correspondences[fit.looEach.reduce<number>((best, e, i) => ((e ?? 0) > (fit.looEach[best] ?? 0) ? i : best), 0)].landmark
+      : null;
+  const bad = quality !== null && quality > MAX_M ? worst : null;
+  const r = Math.max(width, height) / 220;
 
-  const fit = useMemo((): Fit | null => {
-    if (correspondences.length < 4) return null;
-    try {
-      const H = fitHomography(correspondences);
-      return {
-        ok: true,
-        H,
-        inverse: invert(H),
-        rms: rmsError(H, correspondences),
-        loo: leaveOneOutError(correspondences),
-        res: residuals(H, correspondences),
-      };
-    } catch (err) {
-      return { ok: false, problem: err instanceof CalibrationError ? err.message : "These points can't be fitted." };
-    }
-  }, [correspondences]);
+  function choosePitch(id: string) {
+    const f = PITCH_FORMATS.find((x) => x.id === id)!;
+    setFormatId(id);
+    setPlayersPerSide(f.playersPerSide);
+    setSize(f.size);
+  }
 
-  const quality = fit?.ok ? (fit.loo ?? fit.rms) : null;
-  const sx = width / frames[frameIdx].width; // frames may be stored downscaled
-  const r = Math.max(width, height) / 220; // marker size relative to the frame
-
-  function place(landmark: string, at: Vec2) {
-    if (!canEdit) return;
+  function place(at: Vec2) {
+    if (!canEdit || !current) return;
     const clamped: Vec2 = [Math.min(width, Math.max(0, at[0])), Math.min(height, Math.max(0, at[1]))];
-    setPoints((p) => ({ ...p, [landmark]: clamped }));
+    setPoints((p) => ({ ...p, [current]: clamped }));
+    setSkipped((s) => {
+      const n = new Set(s);
+      n.delete(current);
+      return n;
+    });
+    setLastPlaced(current);
+    setChosen(null);
+    setNotice(null);
     setError(null);
   }
 
-  function onClick(e: React.MouseEvent<SVGSVGElement>) {
+  function onFrameClick(e: React.MouseEvent<SVGSVGElement>) {
     const box = svgRef.current!.getBoundingClientRect();
-    place(selected, [((e.clientX - box.left) / box.width) * width, ((e.clientY - box.top) / box.height) * height]);
+    place([((e.clientX - box.left) / box.width) * width, ((e.clientY - box.top) / box.height) * height]);
   }
 
   function onKey(e: React.KeyboardEvent) {
-    const p = points[selected];
-    if (!p) return;
+    const id = lastPlaced;
+    const p = id ? points[id] : undefined;
+    if (!id || !p) return;
     const step = e.shiftKey ? 10 : 1;
     const moves: Record<string, Vec2> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     if (moves[e.key]) {
       e.preventDefault();
-      place(selected, [p[0] + moves[e.key][0], p[1] + moves[e.key][1]]);
-    } else if (e.key === "Delete" || e.key === "Backspace") {
-      e.preventDefault();
-      setPoints((p) => without(p, selected));
+      setPoints((all) => ({ ...all, [id]: [p[0] + moves[e.key][0], p[1] + moves[e.key][1]] }));
     }
+  }
+
+  function skipCurrent() {
+    if (!current) return;
+    setSkipped((s) => new Set(s).add(current));
+    setPoints((p) => {
+      const copy = { ...p };
+      delete copy[current];
+      return copy;
+    });
+    setChosen(null);
+  }
+
+  function startOver() {
+    setPoints({});
+    setSkipped(new Set());
+    setChosen(null);
+    setLastPlaced(null);
+    setNotice(null);
+  }
+
+  function reuse(c: Reusable) {
+    setFormatId(formatFor(c.playersPerSide).id);
+    setPlayersPerSide(c.playersPerSide);
+    setSize({ length: c.pitchLength, width: c.pitchWidth });
+    setPoints(Object.fromEntries(c.points.map((p) => [p.landmark, p.image])));
+    setSkipped(new Set());
+    setChosen(null);
+    setStep("points");
+    setNotice(`Points copied from “${c.matchTitle}”. If the camera was in the same spot, the green lines sit on the pitch lines. If not, start over.`);
   }
 
   async function save() {
@@ -131,8 +286,9 @@ export function Calibrator({
     setError(null);
     try {
       await apiPost(`/api/orgs/${orgId}/matches/${matchId}/calibration`, {
-        pitchLength: pitch.length,
-        pitchWidth: pitch.width,
+        pitchLength: size.length,
+        pitchWidth: size.width,
+        playersPerSide,
         points: correspondences.map((c) => ({ landmark: c.landmark, x: c.image[0], y: c.image[1] })),
       });
       router.push(backHref);
@@ -143,14 +299,106 @@ export function Calibrator({
     }
   }
 
+  if (step === "pitch") {
+    return (
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold">1 · What kind of pitch is it?</h2>
+          <div role="radiogroup" aria-label="Pitch type" className="mt-4 grid gap-3 sm:grid-cols-2">
+            {PITCH_FORMATS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                role="radio"
+                aria-checked={formatId === f.id}
+                onClick={() => choosePitch(f.id)}
+                className={`rounded-xl border p-4 text-left transition-colors ${formatId === f.id ? "border-mindaro bg-accent-soft" : "border-border hover:border-cascade"}`}
+              >
+                <span className="font-display text-xl font-bold uppercase">{f.label}</span>
+                <span className="mt-1 block text-sm text-muted">{f.help}</span>
+                <span className="font-data mt-2 block text-xs text-muted">
+                  typically {f.size.length} × {f.size.width} m
+                </span>
+              </button>
+            ))}
+          </div>
+          <fieldset className="mt-6">
+            <legend className="font-medium">Your pitch size</legend>
+            <p className="text-xs text-muted">Distances are only as accurate as these numbers. Change them if you know your pitch.</p>
+            <div className="mt-2 grid max-w-sm grid-cols-2 gap-3 text-sm">
+              <label>
+                Length, goal to goal (m)
+                <input
+                  type="number"
+                  min={20}
+                  max={120}
+                  step={0.5}
+                  value={size.length}
+                  onChange={(e) => setSize((s) => ({ ...s, length: Number(e.target.value) }))}
+                  className="font-data mt-1 w-full rounded-lg border border-border-strong bg-bg px-2 py-1.5"
+                />
+              </label>
+              <label>
+                Width (m)
+                <input
+                  type="number"
+                  min={12}
+                  max={90}
+                  step={0.5}
+                  value={size.width}
+                  onChange={(e) => setSize((s) => ({ ...s, width: Number(e.target.value) }))}
+                  className="font-data mt-1 w-full rounded-lg border border-border-strong bg-bg px-2 py-1.5"
+                />
+              </label>
+            </div>
+          </fieldset>
+          <Button className="mt-6" disabled={!(size.length >= 20 && size.width >= 12 && size.length > size.width)} onClick={() => setStep("points")}>
+            Next: mark the pitch
+          </Button>
+        </Card>
+
+        {reusable.length > 0 && (
+          <Card className="h-fit p-6">
+            <h2 className="text-lg font-semibold">Same camera spot as before?</h2>
+            <p className="mt-1 text-sm text-muted">Reuse the points from an earlier match, then check the lines by eye.</p>
+            <ul className="mt-3 space-y-2">
+              {reusable.map((c) => (
+                <li key={c.id}>
+                  <Button variant="secondary" className="w-full justify-between text-left" onClick={() => reuse(c)}>
+                    <span className="truncate">Use “{c.matchTitle}”</span>
+                    <span className="font-data shrink-0 text-xs text-muted">{c.playedOn ?? new Date(c.createdAt).toISOString().slice(0, 10)}</span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </div>
+    );
+  }
+
+  const status = !fit
+    ? null
+    : !fit.ok
+      ? { tone: "danger" as const, title: "These points don't fit together", text: fit.problem }
+      : !enough
+        ? null
+        : quality === null
+          ? { tone: "warning" as const, title: "Can't check these points yet", text: "Some points line up with each other. Add a point somewhere else on the pitch." }
+          : quality <= GOOD_M
+            ? { tone: "accent" as const, title: `Great: accurate to about ${quality.toFixed(1)} m`, text: "Positions will be labelled as measured." }
+            : quality <= MAX_M
+              ? { tone: "warning" as const, title: `OK: accurate to about ${quality.toFixed(1)} m`, text: `Positions will be labelled as estimates. To improve it, redo ${hint(worst!)}.` }
+              : { tone: "danger" as const, title: "The points don't agree", text: `${hint(bad!)[0].toUpperCase()}${hint(bad!).slice(1)} is probably in the wrong place. Select it (red) on the drawing and click its real spot again.` };
+
   return (
-    <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_340px]">
+    <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted">Frame:</span>
           {frames.map((f, i) => (
             <Button key={f.url} variant={i === frameIdx ? "primary" : "secondary"} onClick={() => setFrameIdx(i)} aria-pressed={i === frameIdx}>
-              <span className="font-data">{Math.floor(f.timeSeconds / 60)}:{String(Math.round(f.timeSeconds % 60)).padStart(2, "0")}</span>
+              <span className="font-data">{mmss(f.timeSeconds)}</span>
             </Button>
           ))}
           <span className="ml-auto" />
@@ -165,26 +413,24 @@ export function Calibrator({
             <svg
               ref={svgRef}
               viewBox={`0 0 ${width} ${height}`}
-              className={`absolute inset-0 h-full w-full ${canEdit ? "cursor-crosshair" : ""}`}
-              onClick={onClick}
+              className={`absolute inset-0 h-full w-full ${canEdit && current ? "cursor-crosshair" : ""}`}
+              onClick={onFrameClick}
               onKeyDown={onKey}
               tabIndex={0}
               role="application"
-              aria-label="Video frame. Click to place the selected landmark; arrow keys nudge it, Shift for 10 pixels, Delete removes it."
+              aria-label={`Video frame. Click ${current ? hint(current) : "a point"}. Arrow keys nudge the last point, Shift for 10 pixels.`}
             >
               {fit?.ok &&
-                pitchSegments(pitch).map(([a, b], i) => {
+                pitchSegments(size, boxes).map(([a, b], i) => {
                   const p = apply(fit.inverse, a);
                   const q = apply(fit.inverse, b);
                   return <line key={i} x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]} stroke="var(--mindaro)" strokeWidth={r / 3} opacity={0.85} />;
                 })}
-              {correspondences.map((c, i) => {
-                const isSel = c.landmark === selected;
-                const res = fit?.ok ? fit.res[i] : undefined;
-                const color = res === undefined ? "var(--white)" : res <= GOOD_M ? "var(--mindaro)" : res <= MAX_M ? "var(--gold)" : "var(--danger)";
+              {correspondences.map((c) => {
+                const color = c.landmark === bad ? "var(--danger)" : "var(--mindaro)";
                 return (
                   <g key={c.landmark}>
-                    <circle cx={c.image[0]} cy={c.image[1]} r={isSel ? r * 1.6 : r} fill="none" stroke={color} strokeWidth={r / 2.5} />
+                    <circle cx={c.image[0]} cy={c.image[1]} r={c.landmark === current ? r * 1.6 : r} fill="none" stroke={color} strokeWidth={r / 2.5} />
                     <circle cx={c.image[0]} cy={c.image[1]} r={r / 3} fill={color} />
                   </g>
                 );
@@ -193,122 +439,99 @@ export function Calibrator({
           </div>
         </div>
         <p className="text-xs text-muted">
-          Frame resolution {width}×{height}
-          {sx !== 1 ? " (shown downscaled)" : ""}. Lines are drawn from the fitted calibration: if they don&apos;t sit on
-          the real pitch markings, a landmark is misplaced.
+          If players or the camera angle hide the lines, try another frame. Once 4 points are placed, green pitch lines are drawn over the
+          video so you can check them.
         </p>
       </div>
 
       <aside className="space-y-4">
-        <Card className="p-4">
-          <h2 className="font-semibold">Pitch size</h2>
-          <p className="mt-1 text-xs text-muted">Use your real pitch dimensions: distances are only as accurate as these.</p>
-          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-            <label>
-              Length (m)
-              <input
-                type="number"
-                min={50}
-                max={120}
-                step={0.5}
-                value={pitch.length}
-                disabled={!canEdit}
-                onChange={(e) => setPitch((p) => ({ ...p, length: Number(e.target.value) }))}
-                className="font-data mt-1 w-full rounded-lg border border-border-strong bg-bg px-2 py-1.5"
-              />
-            </label>
-            <label>
-              Width (m)
-              <input
-                type="number"
-                min={30}
-                max={90}
-                step={0.5}
-                value={pitch.width}
-                disabled={!canEdit}
-                onChange={(e) => setPitch((p) => ({ ...p, width: Number(e.target.value) }))}
-                className="font-data mt-1 w-full rounded-lg border border-border-strong bg-bg px-2 py-1.5"
-              />
-            </label>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Fit quality</h2>
-            {quality !== null && <Badge tone={qualityTone(quality)}>{quality <= GOOD_M ? "Good" : quality <= MAX_M ? "Usable" : "Too inaccurate"}</Badge>}
-          </div>
-          {correspondences.length < 4 ? (
-            <p className="mt-2 text-sm text-muted">Mark {4 - correspondences.length} more landmark{4 - correspondences.length === 1 ? "" : "s"}.</p>
-          ) : fit && !fit.ok ? (
-            <p className="mt-2 text-sm text-gold">{fit.problem}</p>
-          ) : fit?.ok ? (
-            <dl className="mt-2 grid grid-cols-2 gap-y-1 text-sm">
-              <dt className="text-muted">Fit error</dt>
-              <dd className="font-data text-right">{fit.rms.toFixed(2)} m</dd>
-              <dt className="text-muted">Prediction error</dt>
-              <dd className="font-data text-right">{fit.loo === null ? "needs 5+" : `${fit.loo.toFixed(2)} m`}</dd>
-            </dl>
-          ) : null}
-          <p className="mt-2 text-xs text-muted">
-            Prediction error checks each landmark against a fit made without it. Under 1 m is good; over 3 m can&apos;t be saved.
-          </p>
-        </Card>
-
-        <Card className="p-4">
-          <h2 className="font-semibold">Landmarks</h2>
-          {canEdit && (
-            <div className="mt-2 flex gap-2">
-              <Button variant="secondary" onClick={() => place(selected, [width / 2, height / 2])}>
-                Place at centre
-              </Button>
-              {points[selected] && (
-                <Button variant="ghost" onClick={() => setPoints((p) => without(p, selected))}>
-                  Remove
+        {canEdit && (
+          <Card className="p-4" corners="pitchline">
+            <p className="font-data text-xs uppercase tracking-widest text-muted">
+              {format.label} · {size.length} × {size.width} m
+            </p>
+            {current ? (
+              <>
+                <h2 className="mt-2 text-xl font-semibold" aria-live="polite">
+                  Click {hint(current)}
+                </h2>
+                <p className="mt-1 text-xs text-muted">Far = the side away from the camera. Left and right as you see them in the video.</p>
+              </>
+            ) : (
+              <h2 className="mt-2 text-xl font-semibold" aria-live="polite">
+                {enough ? "All points done" : "No more points to ask for"}
+              </h2>
+            )}
+            <div className="mt-3">
+              <PitchGuide size={size} boxes={boxes} ids={order} placed={placed} skipped={skipped} current={current} bad={bad} onSelect={setChosen} />
+            </div>
+            <p className="mt-2 text-sm">
+              <span className="font-data">{correspondences.length}</span> placed
+              {correspondences.length < MIN_POINTS && <span className="text-muted"> · {MIN_POINTS - correspondences.length} more needed</span>}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {current && (
+                <Button variant="secondary" onClick={skipCurrent}>
+                  {placed.has(current) ? "Remove this point" : "I can't see this point"}
                 </Button>
               )}
+              <Button variant="ghost" onClick={startOver}>
+                Start over
+              </Button>
+              <Button variant="ghost" onClick={() => setStep("pitch")}>
+                Change pitch
+              </Button>
             </div>
-          )}
-          <div className="mt-3 max-h-[42vh] space-y-3 overflow-y-auto pr-1">
-            {GROUPS.map((g) => (
-              <fieldset key={g}>
-                <legend className="font-data text-[11px] uppercase tracking-widest text-muted">{g}</legend>
-                <ul className="mt-1 space-y-0.5">
-                  {LANDMARKS.filter((l) => l.group === g).map((l) => {
-                    const idx = correspondences.findIndex((c) => c.landmark === l.id);
-                    const res = idx >= 0 && fit?.ok ? fit.res[idx] : undefined;
-                    return (
-                      <li key={l.id}>
-                        <label className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm ${selected === l.id ? "bg-accent-soft text-fg" : "hover:bg-surface-2"}`}>
-                          <input type="radio" name="landmark" checked={selected === l.id} onChange={() => setSelected(l.id)} className="accent-[var(--mindaro)]" />
-                          <span className="flex-1">{l.label.replace(/^(Left|Right) /, "")}</span>
-                          {idx >= 0 && (
-                            <span className={`font-data text-xs ${res === undefined ? "text-mindaro" : res <= GOOD_M ? "text-mindaro" : res <= MAX_M ? "text-gold" : "text-danger"}`}>
-                              {res === undefined ? "✓" : `${res.toFixed(1)} m`}
-                            </span>
-                          )}
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </fieldset>
-            ))}
-          </div>
-        </Card>
+            {!current && !enough && (
+              <p className="mt-3 text-sm text-gold">
+                Only {correspondences.length} points could be marked. Try another frame where more of the pitch lines show, or select a skipped
+                point on the drawing.
+              </p>
+            )}
+          </Card>
+        )}
+
+        {notice && <p className="rounded-lg border border-mindaro/40 bg-accent-soft p-3 text-sm">{notice}</p>}
+
+        {status && (
+          <Card className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="font-semibold">{status.title}</h2>
+              <Badge tone={status.tone}>{status.tone === "accent" ? "Good" : status.tone === "warning" ? "Usable" : "Fix a point"}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted">{status.text}</p>
+            {fit?.ok && quality !== null && quality <= MAX_M && canEdit && (
+              <div className="mt-4 rounded-lg border border-border bg-bg p-3">
+                <p className="text-sm font-medium">Do the green lines sit on the white lines of your pitch?</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button disabled={saving} onClick={save}>
+                    {saving ? "Saving…" : "Yes, save calibration"}
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted">If not, select the point that&apos;s off on the drawing and click its real spot again.</p>
+              </div>
+            )}
+            {fit?.ok && (
+              <details className="mt-3 text-xs text-muted">
+                <summary className="cursor-pointer">Details</summary>
+                <dl className="font-data mt-2 grid grid-cols-2 gap-y-1">
+                  <dt>Fit error</dt>
+                  <dd className="text-right">{fit.rms.toFixed(2)} m</dd>
+                  <dt>Prediction error</dt>
+                  <dd className="text-right">{fit.loo === null ? "n/a" : `${fit.loo.toFixed(2)} m`}</dd>
+                </dl>
+                <p className="mt-1">Prediction error checks each point against a fit made without it. Under 1 m is good; over 3 m can&apos;t be saved.</p>
+              </details>
+            )}
+          </Card>
+        )}
 
         {error && (
           <p role="alert" className="rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
             {error}
           </p>
         )}
-        {canEdit ? (
-          <Button className="w-full" disabled={saving || quality === null || quality > MAX_M} onClick={save}>
-            {saving ? "Saving…" : "Save calibration"}
-          </Button>
-        ) : (
-          <p className="text-sm text-muted">Your role can view but not change the calibration.</p>
-        )}
+        {!canEdit && <p className="text-sm text-muted">Your role can view but not change the calibration.</p>}
       </aside>
     </div>
   );

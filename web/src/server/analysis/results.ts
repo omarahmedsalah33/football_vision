@@ -14,11 +14,25 @@ export const summarySchema = z.object({
   pipeline: z.string().nullable().optional(),
   models: z.record(z.string(), z.string()),
   settings: z.object({ sampleFps: z.number(), windowSeconds: z.number() }),
-  pitch: z.object({ length: z.number(), width: z.number() }),
+  pitch: z.object({ length: z.number(), width: z.number(), playersPerSide: z.number().default(11) }),
   provenance: z.record(z.string(), z.enum(["measured", "estimated", "inferred", "not_available"])),
   quality: z.object({
     calibration: z.object({ rmsErrorM: z.number().nullable().optional(), looErrorM: z.number().nullable().optional() }),
-    detection: z.object({ framesAnalysed: z.number(), meanPeoplePerFrame: z.number(), shareFramesUnder16People: z.number() }),
+    // Older results (before small-sided support) only have the 16-people share.
+    detection: z
+      .object({
+        framesAnalysed: z.number(),
+        meanPeoplePerFrame: z.number(),
+        minPeople: z.number().optional(),
+        shareFramesUnderMinPeople: z.number().optional(),
+        shareFramesUnder16People: z.number().optional(),
+      })
+      .transform((d) => ({
+        framesAnalysed: d.framesAnalysed,
+        meanPeoplePerFrame: d.meanPeoplePerFrame,
+        minPeople: d.minPeople ?? 16,
+        shareFramesUnderMinPeople: d.shareFramesUnderMinPeople ?? d.shareFramesUnder16People ?? 0,
+      })),
     tracking: z.object({ tracks: z.number(), medianTrackSeconds: z.number(), meanCoverage: z.number(), tracksPerExpectedPerson: z.number() }),
     teams: z.object({ a: z.number(), b: z.number(), other: z.number(), separation: z.number().nullable().optional() }).passthrough(),
     teamShape: z.object({ windows: z.number(), windowsWithBothTeams: z.number() }),

@@ -52,7 +52,8 @@ export default function DocsPage() {
             </li>
             <li>
               <strong>Framing:</strong> as much of the pitch as possible, including both penalty areas. Keep at least
-              four pitch markings visible (corners, box corners, halfway line ends) for calibration.
+              five pitch markings visible (corners, halfway line ends, centre spot; on full-size pitches also box
+              corners and penalty spots) for calibration. Small-sided pitches (5- to 9-a-side) work too.
             </li>
             <li>
               <strong>Keep it still:</strong> no zooming, panning or moving the camera during a half. If the camera

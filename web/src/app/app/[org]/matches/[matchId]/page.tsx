@@ -177,7 +177,7 @@ async function MatchDetailView({ params }: { params: PageProps<"/app/[org]/match
           ) : video?.status === "validated" ? (
             <div className="mt-4 space-y-3 text-sm">
               <p className="text-muted">
-                Mark a few pitch landmarks on a frame so we can measure positions in metres. It takes about a minute.
+                Show us where the pitch is by clicking 5 or more points on it, so we can measure in metres. It takes about a minute.
               </p>
               {can(actor.role, "match.update") && <ButtonLink href={`${base}/calibrate`}>Calibrate pitch</ButtonLink>}
             </div>

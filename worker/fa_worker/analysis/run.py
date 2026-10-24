@@ -18,7 +18,7 @@ import numpy as np
 
 from .detector import build_detector
 from .geometry import foot_points, on_pitch, project, to_matrix
-from .metrics import WINDOW_S, team_shape_windows, track_summary
+from .metrics import WINDOW_S, expected_people, min_team_players, team_shape_windows, track_summary
 from .teams import assign_teams
 from .tracker import ByteTrackTracker
 
@@ -57,6 +57,7 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
     H = to_matrix(calibration["homography"]["matrix"])
     pitch = calibration["homography"].get("pitch", {"length": 105, "width": 68})
     length, width = float(pitch["length"]), float(pitch["width"])
+    players_per_side = int(pitch.get("playersPerSide", 11))
     sample_fps = float(cfg.get("sampleFps", 4))
     # Optional window (seconds) for evaluation runs; production analyses the whole video.
     start_s = float(cfg.get("startSeconds", 0.0))
@@ -139,7 +140,7 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
             if team in groups:
                 groups[team].append((x, y))
         shape_frames.append((t, {k: np.array(v).reshape(-1, 2) for k, v in groups.items()}))
-    windows = team_shape_windows(shape_frames, length, WINDOW_S)
+    windows = team_shape_windows(shape_frames, length, WINDOW_S, players_per_side)
 
     with gzip.open(out_dir / "tracks.jsonl.gz", "wt", encoding="utf-8") as fh:
         for t, players in per_frame:
@@ -152,21 +153,23 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
         "pipeline": cfg.get("pipelineVersion"),
         "models": {"detector": detector.version, "tracker": tracker.version, "teams": "lab-median-2means-v1"},
         "settings": {"sampleFps": sample_fps, "windowSeconds": WINDOW_S},
-        "pitch": {"length": length, "width": width},
+        "pitch": {"length": length, "width": width, "playersPerSide": players_per_side},
         "provenance": provenance(calibration),
         "quality": {
             "calibration": {"rmsErrorM": calibration.get("rmsErrorM"), "looErrorM": calibration.get("looErrorM")},
             "detection": {
                 "framesAnalysed": len(per_frame),
                 "meanPeoplePerFrame": float(ppf.mean()),
-                "shareFramesUnder16People": float((ppf < 16).mean()),
+                # "Fewer people than two team shapes need": 16 on a full pitch, 8 in 5-a-side.
+                "minPeople": 2 * min_team_players(players_per_side),
+                "shareFramesUnderMinPeople": float((ppf < 2 * min_team_players(players_per_side)).mean()),
             },
             "tracking": {
                 "tracks": len(tracks),
                 "medianTrackSeconds": float(np.median([t["last_seconds"] - t["first_seconds"] for t in tracks])) if tracks else 0.0,
                 "meanCoverage": float(np.mean([t["coverage"] for t in tracks])) if tracks else 0.0,
-                # 22 players + 3 officials would be a perfect 25; far more means identities break up.
-                "tracksPerExpectedPerson": len(tracks) / 25,
+                # One track per player and official is perfect (25 on a full pitch); far more means identities break up.
+                "tracksPerExpectedPerson": len(tracks) / expected_people(players_per_side),
             },
             "teams": {**team_quality, **counts},
             "teamShape": {"windows": len(windows), "windowsWithBothTeams": len(valid_windows)},

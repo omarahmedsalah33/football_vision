@@ -56,7 +56,7 @@ export async function AnalysisResults({ orgSlug, matchId, jobId }: { orgSlug: st
         <h3 className="text-lg font-semibold">How reliable is this?</h3>
         <dl className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <Stat label="Calibration error" value={calError != null ? `${calError.toFixed(2)} m` : "n/a"} note={calError != null && calError <= 1 ? "Good: positions are measured" : "Positions are estimates"} />
-          <Stat label="People detected per frame" value={q.detection.meanPeoplePerFrame.toFixed(1)} note={`${Math.round(q.detection.shareFramesUnder16People * 100)}% of frames saw fewer than 16`} />
+          <Stat label="People detected per frame" value={q.detection.meanPeoplePerFrame.toFixed(1)} note={`${Math.round(q.detection.shareFramesUnderMinPeople * 100)}% of frames saw fewer than ${q.detection.minPeople}`} />
           <Stat
             label="Tracks per expected person"
             value={q.tracking.tracksPerExpectedPerson.toFixed(1)}

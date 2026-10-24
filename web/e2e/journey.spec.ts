@@ -72,14 +72,11 @@ const PITCH_TO_IMAGE = fitHomography([
   { image: [105, 68], pitch: [1255, 700] },
   { image: [0, 68], pitch: [25, 700] },
 ]);
-const CLICKS: [string, string, string][] = [
-  ["Left half", "left_corner_far", "corner, far side"],
-  ["Left half", "left_corner_near", "corner, near side"],
-  ["Centre", "halfway_far", "Halfway line meets far touchline"],
-  ["Centre", "halfway_near", "Halfway line meets near touchline"],
-  ["Right half", "right_corner_far", "corner, far side"],
-  ["Right half", "right_box_near", "penalty box corner, near"],
-];
+async function clickOnFrame(page: import("@playwright/test").Page, id: string) {
+  const box = (await page.getByRole("application").boundingBox())!;
+  const [px, py] = apply(PITCH_TO_IMAGE, LANDMARK_BY_ID.get(id)!.at(STANDARD_PITCH));
+  await page.mouse.click(box.x + (px / 1280) * box.width, box.y + (py / 720) * box.height);
+}
 
 function runWorker(timeout: number) {
   execFileSync(WORKER_PYTHON, ["-m", "fa_worker.main", "--once"], { cwd: resolve(__dirname, "../../worker"), stdio: "inherit", timeout });
@@ -123,20 +120,35 @@ test("coach signs in, uploads footage, calibrates the pitch and gets an analysis
   await expect(matchPage.getByText("1280×720 @ 25.0 fps")).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/07-match-needs-calibration.png`, fullPage: true });
 
-  // Calibrate: click six landmarks where a known camera would see them.
+  // Calibrate with the guided flow: pick the pitch type, then click the points it asks for, where a
+  // known camera would see them. One point is skipped and one is chosen on the pitch drawing.
   await matchPage.getByRole("link", { name: "Calibrate pitch" }).click();
   await expect(page.getByRole("heading", { name: "Calibrate pitch" })).toBeVisible();
-  const frame = page.getByRole("application");
-  await expect(frame).toBeVisible();
-  for (const [group, id, name] of CLICKS) {
-    await page.getByRole("group", { name: group }).getByRole("radio", { name, exact: true }).check();
-    const box = (await frame.boundingBox())!;
-    const [px, py] = apply(PITCH_TO_IMAGE, LANDMARK_BY_ID.get(id)!.at(STANDARD_PITCH));
-    await page.mouse.click(box.x + (px / 1280) * box.width, box.y + (py / 720) * box.height);
-  }
-  await expect(page.getByText("Good", { exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Full size/ })).toHaveAttribute("aria-checked", "true");
+  // A small-sided pitch asks only for corners and halfway points; switching back restores full size.
+  await page.getByRole("radio", { name: /5- or 6-a-side/ }).click();
+  await expect(page.getByLabel("Length, goal to goal (m)")).toHaveValue("40");
+  await page.screenshot({ path: `${SHOTS}/08a-pitch-type.png`, fullPage: true });
+  await page.getByRole("button", { name: "Next: mark the pitch" }).click();
+  await expect(page.getByRole("button", { name: /^Select / })).toHaveCount(7);
+  await page.screenshot({ path: `${SHOTS}/08b-calibration-small-sided.png`, fullPage: true });
+  await page.getByRole("button", { name: "Change pitch" }).click();
+  await page.getByRole("radio", { name: /Full size/ }).click();
+  await page.getByRole("button", { name: "Next: mark the pitch" }).click();
+  await expect(page.getByRole("button", { name: /^Select / })).toHaveCount(27);
+  await expect(page.getByRole("application")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Click the far-left corner" })).toBeVisible();
+  for (const id of ["left_corner_far", "halfway_far", "right_corner_far"]) await clickOnFrame(page, id);
+  await expect(page.getByRole("heading", { name: "Click the near-right corner" })).toBeVisible();
+  await page.getByRole("button", { name: "I can't see this point" }).click();
+  await page.getByRole("button", { name: /^Select the near corner of the right penalty box/ }).click();
+  await clickOnFrame(page, "right_box_near");
+  await expect(page.getByRole("heading", { name: "Click where the halfway line meets the near touchline" })).toBeVisible();
+  await expect(page.getByText("4 placed")).toBeVisible();
+  for (const id of ["halfway_near", "left_corner_near"]) await clickOnFrame(page, id);
+  await expect(page.getByRole("heading", { name: /^Great: accurate to about 0\.\d m$/ })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/08-calibration.png`, fullPage: true });
-  await page.getByRole("button", { name: "Save calibration" }).click();
+  await page.getByRole("button", { name: "Yes, save calibration" }).click();
 
   // Analyse with the real detector (RF-DETR) and tracker.
   await expect(matchPage.getByText("Ready", { exact: true })).toBeVisible({ timeout: 30_000 });

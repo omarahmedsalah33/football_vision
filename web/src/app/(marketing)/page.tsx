@@ -55,7 +55,7 @@ const STEPS: { title: string; text: string; state: StepState; icon: ReactNode }[
   },
   {
     title: "Calibrate",
-    text: "Click four or more points on the pitch once per camera spot. You see the fit and its error in metres before you save.",
+    text: "Pick your pitch type and click the points we ask for, once per camera spot. You see how accurate it is before you save.",
     state: "live",
     icon: Icons.calibrate,
   },

@@ -52,9 +52,8 @@ async function Content({ params }: { params: PageProps<"/app/[org]/matches/[matc
         <div>
           <h1 className="font-display text-3xl font-bold uppercase tracking-tight">Calibrate pitch</h1>
           <p className="mt-1 max-w-3xl text-sm text-muted">
-            Choose a landmark, then click exactly where it is on the frame. Use at least 4 landmarks spread across the
-            pitch; 6 or more give an honest accuracy estimate. Once it fits, the pitch lines are drawn over the frame so
-            you can check them by eye.
+            Show us where the pitch is: pick your pitch type, then click the points we ask for, one at a time. It takes
+            about a minute, and you only need to do it once per camera spot.
           </p>
         </div>
         <Link href={back} className="text-sm text-mindaro underline underline-offset-4">
@@ -70,6 +69,7 @@ async function Content({ params }: { params: PageProps<"/app/[org]/matches/[matc
         height={ctx.height}
         frames={ctx.frames}
         initial={ctx.latest}
+        reusable={ctx.reusable}
       />
     </>
   );

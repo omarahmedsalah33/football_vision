@@ -12,8 +12,17 @@ import numpy as np
 
 CELL_M = 5.0
 MAX_SPEED_MPS = 12.0  # faster than any footballer: such jumps are identity switches, not running
-MIN_TEAM_PLAYERS = 8  # a team shape needs most of the team in view
 WINDOW_S = 10.0
+
+
+def min_team_players(players_per_side: int = 11) -> int:
+    """A team shape needs most of the team in view: 8 of 11, 4 of 5 (about 70 %, at least 3)."""
+    return max(3, math.ceil(0.7 * players_per_side))
+
+
+def expected_people(players_per_side: int = 11) -> int:
+    """Players plus officials a perfect tracker would follow: 22 + 3 on a full pitch, n×2 + 1 in small-sided games."""
+    return 2 * players_per_side + (3 if players_per_side == 11 else 1)
 
 
 def heatmap_shape(length: float, width: float) -> tuple[int, int]:
@@ -86,16 +95,17 @@ def _hull_area(points: np.ndarray) -> float:
     return float(0.5 * abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1))))
 
 
-def frame_shape(team_xy: np.ndarray, defends_left: bool, length: float) -> dict | None:
+def frame_shape(team_xy: np.ndarray, defends_left: bool, length: float, players_per_side: int = 11) -> dict | None:
     """Shape of one team in one frame, or None when too few players are visible."""
-    if len(team_xy) < MIN_TEAM_PLAYERS:
+    if len(team_xy) < min_team_players(players_per_side):
         return None
     depth_from_goal = team_xy[:, 0] if defends_left else length - team_xy[:, 0]
     order = np.argsort(depth_from_goal)
     # With (nearly) the whole team in view, the deepest player is almost always the goalkeeper:
     # leave them out of outfield shape metrics.
-    outfield = team_xy[order[1:]] if len(team_xy) >= 10 else team_xy[order]
-    outfield_depth = depth_from_goal[order[1:]] if len(team_xy) >= 10 else depth_from_goal[order]
+    with_keeper = len(team_xy) >= players_per_side - 1
+    outfield = team_xy[order[1:]] if with_keeper else team_xy[order]
+    outfield_depth = depth_from_goal[order[1:]] if with_keeper else depth_from_goal[order]
     return {
         "width": float(outfield[:, 1].max() - outfield[:, 1].min()),
         "depth": float(outfield[:, 0].max() - outfield[:, 0].min()),
@@ -105,7 +115,9 @@ def frame_shape(team_xy: np.ndarray, defends_left: bool, length: float) -> dict 
     }
 
 
-def team_shape_windows(frames: list[tuple[float, dict[str, np.ndarray]]], length: float, window_s: float = WINDOW_S) -> list[dict]:
+def team_shape_windows(
+    frames: list[tuple[float, dict[str, np.ndarray]]], length: float, window_s: float = WINDOW_S, players_per_side: int = 11
+) -> list[dict]:
     """frames: [(t, {"a": N×2, "b": M×2})]. Returns one entry per window with the median shape of
     each team, or None for a team when fewer than half of the window's frames had enough players."""
     buckets: dict[int, list] = defaultdict(list)
@@ -123,7 +135,7 @@ def team_shape_windows(frames: list[tuple[float, dict[str, np.ndarray]]], length
                     continue
                 # The team whose centroid is further left defends the left goal in this frame.
                 defends_left = len(them) == 0 or me[:, 0].mean() <= them[:, 0].mean()
-                s = frame_shape(me, defends_left, length)
+                s = frame_shape(me, defends_left, length, players_per_side)
                 if s:
                     shapes.append(s)
             if len(shapes) * 2 >= len(frames_in) and shapes:

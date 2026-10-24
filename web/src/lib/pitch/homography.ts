@@ -156,3 +156,35 @@ export function leaveOneOutError(points: Correspondence[]): number | null {
   }
   return Math.sqrt(sq.reduce((a, b) => a + b, 0) / sq.length);
 }
+
+/**
+ * Rejects fits that can't come from a real camera: every point of the pitch must be in front of
+ * the camera, so the projective scale w of the image→pitch inverse must have one sign over the whole
+ * pitch rectangle. A misplaced click with only 4–5 points can otherwise fold the pitch through the
+ * horizon and still fit "exactly".
+ */
+export function assertPlausible(H: Mat3, size: { length: number; width: number }) {
+  const inv = invert(H); // pitch → image
+  const corners: Vec2[] = [
+    [0, 0],
+    [size.length, 0],
+    [size.length, size.width],
+    [0, size.width],
+  ];
+  const ws = corners.map(([x, y]) => inv[6] * x + inv[7] * y + inv[8]);
+  if (!(ws.every((w) => w > 1e-9) || ws.every((w) => w < -1e-9))) {
+    throw new CalibrationError("These points would put part of the pitch behind the camera, so at least one is in the wrong place.");
+  }
+  // The pitch must also keep its orientation (no mirror image): left stays left of right as seen
+  // from the camera, and the far touchline stays above the near one.
+  const img = corners.map((c) => apply(inv, c));
+  let signed = 0;
+  for (let i = 0; i < 4; i++) {
+    const [x1, y1] = img[i];
+    const [x2, y2] = img[(i + 1) % 4];
+    signed += x1 * y2 - x2 * y1;
+  }
+  if (signed <= 0) {
+    throw new CalibrationError("The points describe a mirrored pitch: check that left and right, and near and far, aren't swapped.");
+  }
+}

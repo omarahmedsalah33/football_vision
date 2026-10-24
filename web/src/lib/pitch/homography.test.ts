@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { apply, CalibrationError, fitHomography, invert, leaveOneOutError, rmsError, type Correspondence, type Mat3 } from "./homography";
-import { LANDMARKS, STANDARD_PITCH } from "./landmarks";
+import { apply, assertPlausible, CalibrationError, fitHomography, invert, leaveOneOutError, rmsError, type Correspondence, type Mat3 } from "./homography";
+import { guidedOrder, LANDMARK_HINT, LANDMARKS, landmarksFor, PITCH_FORMATS, STANDARD_PITCH } from "./landmarks";
 
 // A plausible camera: pitch metres → 1920×1080 pixels, with perspective (far side smaller).
 const PITCH_TO_IMAGE: Mat3 = [15.2, -6.1, 160, 0.4, 4.2, 210, 0.0004, -0.0061, 1];
@@ -64,5 +64,40 @@ describe("homography fitting", () => {
       expect(ids.has(l.id)).toBe(false);
       ids.add(l.id);
     }
+  });
+});
+
+describe("plausibility", () => {
+  it("accepts a real camera", () => {
+    expect(() => assertPlausible(fitHomography(correspondences(SIX)), STANDARD_PITCH)).not.toThrow();
+  });
+
+  it("rejects a mirrored pitch", () => {
+    const pts = correspondences(SIX).map((c) => ({ ...c, pitch: [STANDARD_PITCH.length - c.pitch[0], c.pitch[1]] as [number, number] }));
+    expect(() => assertPlausible(fitHomography(pts), STANDARD_PITCH)).toThrowError(CalibrationError);
+  });
+
+  it("rejects a fit that folds part of the pitch behind the camera", () => {
+    // One badly misplaced click among four fits "exactly" but bends the pitch through the horizon.
+    const pts = correspondences(SIX.slice(0, 4));
+    pts[2] = { ...pts[2], image: [pts[2].image[0], pts[2].image[1] + 2000] };
+    expect(() => assertPlausible(fitHomography(pts), STANDARD_PITCH)).toThrowError(CalibrationError);
+  });
+});
+
+describe("pitch formats", () => {
+  it("every point has plain instructions", () => {
+    for (const l of LANDMARKS) expect(LANDMARK_HINT[l.id], l.id).toBeTruthy();
+  });
+
+  it("small-sided pitches only use corners and halfway points", () => {
+    for (const f of PITCH_FORMATS.filter((x) => x.playersPerSide !== 11)) {
+      const ids = landmarksFor(f.size, f.playersPerSide).map((l) => l.id);
+      expect(ids.every((id) => /corner|halfway|centre_spot/.test(id)), f.id).toBe(true);
+      expect(guidedOrder(f.size, f.playersPerSide)).toHaveLength(7);
+    }
+    expect(landmarksFor(STANDARD_PITCH, 11)).toHaveLength(LANDMARKS.length);
+    expect(guidedOrder(STANDARD_PITCH, 11)).toHaveLength(LANDMARKS.length);
+    expect(guidedOrder(STANDARD_PITCH, 11)[0].id).toBe("left_corner_far");
   });
 });
