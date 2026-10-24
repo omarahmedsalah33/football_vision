@@ -26,6 +26,10 @@ const ACTION_LABEL: Record<string, string> = {
   "player.created": "Player profile created",
   "player.updated": "Player profile updated",
   "player.archived": "Player profile archived",
+  "plan.created": "Development plan created",
+  "plan.closed": "Development plan closed",
+  "drill.created": "Drill added to the library",
+  "drill.archived": "Drill removed from the library",
   "billing.plan_changed": "Plan changed",
 };
 

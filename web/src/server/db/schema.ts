@@ -481,3 +481,181 @@ export const playerLabels = pgTable(
     check("player_labels_name_length", sql`${t.name} is null or char_length(${t.name}) between 1 and 60`),
   ],
 );
+
+// ---------------------------------------------------------------------------------------------
+// Player development: observations, the training library, development plans and training logs.
+// Dimension keys and drill content are validated in code (lib/development); the database keeps
+// them as text and jsonb so the framework can grow without a migration.
+
+export const observationSource = pgEnum("observation_source", ["coach", "self"]);
+
+// A 1–5 rating of one dimension by a coach or by the player, kept apart from anything measured.
+export const playerObservations = pgTable(
+  "player_observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    dimension: text("dimension").notNull(),
+    rating: integer("rating").notNull(),
+    note: text("note"),
+    source: observationSource("source").notNull(),
+    matchId: uuid("match_id").references(() => matches.id, { onDelete: "set null" }),
+    observedOn: date("observed_on").notNull(),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("player_observations_player_idx").on(t.playerId, t.observedOn),
+    index("player_observations_org_idx").on(t.orgId),
+    check("player_observations_rating_range", sql`${t.rating} between 1 and 5`),
+    check("player_observations_note_length", sql`${t.note} is null or char_length(${t.note}) <= 500`),
+  ],
+);
+
+// Drills a workspace's coaches wrote. The starter library lives in code.
+export const drills = pgTable(
+  "drills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    content: jsonb("content").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("drills_org_idx").on(t.orgId)],
+);
+
+export const planStatus = pgEnum("plan_status", ["active", "completed", "archived"]);
+export const objectiveKind = pgEnum("objective_kind", ["measured", "observed"]);
+
+export const developmentPlans = pgTable(
+  "development_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    status: planStatus("status").notNull().default("active"),
+    startsOn: date("starts_on").notNull(),
+    reviewOn: date("review_on").notNull(),
+    closingNote: text("closing_note"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("development_plans_org_status_idx").on(t.orgId, t.status),
+    index("development_plans_player_idx").on(t.playerId),
+    // One plan at a time per player: a short list of priorities works better than several plans.
+    uniqueIndex("development_plans_one_active_uq").on(t.playerId).where(sql`${t.status} = 'active'`),
+    check("development_plans_title_length", sql`char_length(${t.title}) between 1 and 80`),
+    check("development_plans_note_length", sql`${t.closingNote} is null or char_length(${t.closingNote}) <= 1000`),
+    check("development_plans_dates", sql`${t.reviewOn} >= ${t.startsOn}`),
+  ],
+);
+
+// What the plan should change, with the baseline captured when the plan was made.
+export const planObjectives = pgTable(
+  "plan_objectives",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => developmentPlans.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    dimension: text("dimension").notNull(),
+    kind: objectiveKind("kind").notNull(),
+    metric: text("metric"),
+    baseline: real("baseline"),
+    baselineMatches: integer("baseline_matches"),
+    baselineMinutes: real("baseline_minutes"),
+    target: real("target"),
+    finding: text("finding").notNull(),
+    evidence: jsonb("evidence").notNull().default([]),
+  },
+  (t) => [index("plan_objectives_plan_idx").on(t.planId), check("plan_objectives_metric_kind", sql`(${t.kind} = 'measured') = (${t.metric} is not null)`)],
+);
+
+// A drill in a plan, copied at the time it was prescribed so the plan never changes underneath.
+export const planExercises = pgTable(
+  "plan_exercises",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => developmentPlans.id, { onDelete: "cascade" }),
+    objectiveId: uuid("objective_id").references(() => planObjectives.id, { onDelete: "set null" }),
+    position: integer("position").notNull(),
+    drillKey: text("drill_key").notNull(),
+    drill: jsonb("drill").notNull(),
+    sessionsPerWeek: integer("sessions_per_week").notNull(),
+  },
+  (t) => [index("plan_exercises_plan_idx").on(t.planId), check("plan_exercises_per_week_range", sql`${t.sessionsPerWeek} between 1 and 7`)],
+);
+
+export const trainingLogs = pgTable(
+  "training_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => developmentPlans.id, { onDelete: "cascade" }),
+    exerciseId: uuid("exercise_id")
+      .notNull()
+      .references(() => planExercises.id, { onDelete: "cascade" }),
+    doneOn: date("done_on").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    effort: integer("effort"),
+    note: text("note"),
+    loggedBy: uuid("logged_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("training_logs_plan_idx").on(t.planId, t.doneOn),
+    check("training_logs_duration_range", sql`${t.durationMinutes} between 1 and 240`),
+    check("training_logs_effort_range", sql`${t.effort} is null or ${t.effort} between 1 and 10`),
+    check("training_logs_note_length", sql`${t.note} is null or char_length(${t.note}) <= 500`),
+  ],
+);
+
+export const commentAuthorKind = pgEnum("comment_author_kind", ["coach", "player"]);
+
+// Coach feedback and player reflections on a plan.
+export const planComments = pgTable(
+  "plan_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => developmentPlans.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    authorKind: commentAuthorKind("author_kind").notNull(),
+    body: text("body").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("plan_comments_plan_idx").on(t.planId, t.createdAt), check("plan_comments_body_length", sql`char_length(${t.body}) between 1 and 1000`)],
+);

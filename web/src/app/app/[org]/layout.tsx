@@ -104,11 +104,19 @@ async function WorkspaceNav({ params }: { params: LayoutProps<"/app/[org]">["par
             My profile
           </NavLink>
         )}
+        {me && (
+          <NavLink href={`${base}/players/${me.id}/development`} icon="target" exact>
+            My development
+          </NavLink>
+        )}
         <NavLink href={`${base}/matches`} icon="matches" count={matches.length}>
           Matches
         </NavLink>
         <NavLink href={`${base}/players`} icon="shirt" exact={personal}>
           {personal ? "Players" : "Squad"}
+        </NavLink>
+        <NavLink href={`${base}/training`} icon="training">
+          Training
         </NavLink>
         <NavLink href={`${base}/members`} icon="members">
           Members

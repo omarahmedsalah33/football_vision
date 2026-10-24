@@ -7,6 +7,7 @@ import { pageActor } from "@/server/auth/page";
 import { can } from "@/server/authz/permissions";
 import { getDb } from "@/server/db/client";
 import { workspaceOverview } from "@/server/orgs/overview";
+import { squadDevelopment } from "@/server/development/service";
 import { squad } from "@/server/players/service";
 import { getStorage } from "@/server/storage/s3";
 import { AddPlayerButton } from "./player-dialogs";
@@ -27,7 +28,7 @@ async function Squad({ params }: { params: PageProps<"/app/[org]/players">["para
   const { org } = await params;
   const actor = await pageActor(org);
   const db = getDb();
-  const [rows, overview] = await Promise.all([squad(db, getStorage(), actor), workspaceOverview(db, actor)]);
+  const [rows, overview, plans] = await Promise.all([squad(db, getStorage(), actor), workspaceOverview(db, actor), squadDevelopment(db, actor)]);
   const base = `/app/${actor.orgSlug}`;
   const canManage = can(actor.role, "player.manage");
   const personal = overview.kind === "personal";
@@ -82,6 +83,14 @@ async function Squad({ params }: { params: PageProps<"/app/[org]/players">["para
                     </dd>
                   </div>
                 </dl>
+                {plans.get(player.id) && (
+                  <p className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3 text-xs">
+                    <span className="truncate text-muted">Plan: {plans.get(player.id)!.title}</span>
+                    <span className={`shrink-0 font-data ${plans.get(player.id)!.reviewDue ? "text-gold" : "text-mindaro"}`}>
+                      {plans.get(player.id)!.reviewDue ? "Review due" : `${plans.get(player.id)!.thisWeekDone}/${plans.get(player.id)!.thisWeekPlanned} this week`}
+                    </span>
+                  </p>
+                )}
               </Link>
             </li>
           ))}

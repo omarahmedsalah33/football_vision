@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Icon, PageHeader, StatTile } from "@/components/app-ui";
 import { Pitch } from "@/components/pitch";
-import { Chip, FOOT_LABEL, PlayerAvatar, POSITION_LABEL, ScoreDial } from "@/components/player-ui";
+import { Chip, FOOT_LABEL, PlayerAvatar, POSITION_LABEL, ProfileTabs, ScoreDial } from "@/components/player-ui";
 import { Badge, ButtonLink, Card, CornerMarks } from "@/components/ui";
 import type { MatchPerformance } from "@/lib/analysis/player-profile";
 import { pageActor } from "@/server/auth/page";
@@ -12,6 +12,7 @@ import { can } from "@/server/authz/permissions";
 import { getDb } from "@/server/db/client";
 import { AppError, uuidParam } from "@/server/http/errors";
 import { workspaceOverview } from "@/server/orgs/overview";
+import { squadDevelopment } from "@/server/development/service";
 import { getPlayerProfile } from "@/server/players/service";
 import { getStorage } from "@/server/storage/s3";
 import { EditPlayerButton } from "../player-dialogs";
@@ -92,6 +93,8 @@ async function Profile({ params }: { params: PageProps<"/app/[org]/players/[play
   const maxHeat = Math.max(1e-9, ...stats.heatmap.flat());
   const canManage = can(actor.role, "player.manage");
   const a = overview.analyses;
+  const showDevelopment = isMe || can(actor.role, "plan.read");
+  const plan = showDevelopment ? ((await squadDevelopment(db, actor, new Date(), { playerId: player.id })).get(player.id) ?? null) : null;
 
   return (
     <div className="space-y-8">
@@ -109,6 +112,8 @@ async function Profile({ params }: { params: PageProps<"/app/[org]/players/[play
           )
         }
       />
+
+      <ProfileTabs base={base} playerId={player.id} active="profile" showDevelopment={showDevelopment} />
 
       {/* Player card */}
       <section className="fv-stripes relative overflow-hidden rounded-2xl border border-border bg-surface p-6 sm:p-8">
@@ -135,6 +140,25 @@ async function Profile({ params }: { params: PageProps<"/app/[org]/players/[play
           <ScoreDial score={t.averageScore} size={120} label="Average score" />
         </div>
       </section>
+
+      {showDevelopment && (
+        <Link href={`${base}/players/${player.id}/development`} className="group flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-5 transition-colors hover:border-mindaro">
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-mindaro/40 bg-accent-soft text-mindaro">
+              <Icon name="target" className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-semibold group-hover:text-mindaro">{plan ? plan.title : "Development"}</span>
+              <span className="block text-sm text-muted">
+                {plan
+                  ? `This week: ${plan.thisWeekDone} of ${plan.thisWeekPlanned} training sessions${plan.reviewDue ? " · review due" : ""}`
+                  : `See what ${isMe ? "you" : "they"} should work on, with the evidence, and start a training plan.`}
+              </span>
+            </span>
+          </span>
+          <Icon name="arrow" className="h-5 w-5 text-mindaro" />
+        </Link>
+      )}
 
       {t.matches === 0 ? (
         <Card className="p-6 sm:p-8" corners="pitchline">

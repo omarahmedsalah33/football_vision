@@ -4,8 +4,8 @@ import { assertCan, can, ROLES, type Permission, type Role } from "./permissions
 const ALLOWED: Record<Role, Permission[]> = {
   owner: ["org.delete", "billing.manage", "members.manage", "match.delete", "video.upload", "match.read"],
   admin: ["billing.manage", "members.manage", "match.delete", "video.upload", "match.read"],
-  coach: ["match.create", "video.upload", "analysis.run", "report.share"],
-  analyst: ["match.create", "video.upload", "analysis.run", "report.share", "player.manage"],
+  coach: ["match.create", "video.upload", "analysis.run", "report.share", "plan.manage", "drill.manage", "observation.write"],
+  analyst: ["match.create", "video.upload", "analysis.run", "report.share", "player.manage", "plan.read", "observation.write"],
   scout: ["match.read", "report.read"],
   player: ["match.read", "report.read"],
 };
@@ -14,9 +14,9 @@ const DENIED: Record<Role, Permission[]> = {
   owner: [],
   admin: ["org.delete"],
   coach: ["match.delete", "org.manage", "members.manage", "billing.manage", "org.delete"],
-  analyst: ["match.delete", "members.manage", "billing.manage", "org.delete"],
-  scout: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "billing.manage", "player.manage"],
-  player: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "members.manage", "player.manage"],
+  analyst: ["match.delete", "members.manage", "billing.manage", "org.delete", "plan.manage", "drill.manage"],
+  scout: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "billing.manage", "player.manage", "plan.read", "plan.manage", "observation.write"],
+  player: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "members.manage", "player.manage", "plan.read", "plan.manage", "drill.manage", "observation.write"],
 };
 
 describe("permission matrix", () => {

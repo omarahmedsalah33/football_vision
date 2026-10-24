@@ -16,7 +16,11 @@ export type Permission =
   | "analysis.run"
   | "report.read"
   | "report.share"
-  | "player.manage";
+  | "player.manage"
+  | "plan.read"
+  | "plan.manage"
+  | "drill.manage"
+  | "observation.write";
 
 /** Human-readable names, used by the public docs so they always mirror the enforced matrix. */
 export const PERMISSION_LABELS: Record<Permission, string> = {
@@ -28,6 +32,10 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "analysis.run": "Start or cancel analysis",
   "report.share": "Share reports",
   "player.manage": "Manage player profiles",
+  "plan.read": "View development plans",
+  "observation.write": "Rate players (observations)",
+  "plan.manage": "Create and change development plans",
+  "drill.manage": "Add drills to the training library",
   "match.delete": "Delete matches",
   "members.manage": "Manage members",
   "org.manage": "Workspace settings",
@@ -44,24 +52,29 @@ const ANALYST: Permission[] = [
   "analysis.run",
   "report.share",
   "player.manage",
+  "plan.read",
+  "observation.write",
 ];
+// Prescribing training is a coaching decision: coaches and above, not analysts.
+const COACH: Permission[] = [...ANALYST, "plan.manage", "drill.manage"];
 
 // The single source of truth for role capabilities. Least privilege: anything not listed is denied.
 const MATRIX: Record<Role, ReadonlySet<Permission>> = {
   owner: new Set<Permission>([
-    ...ANALYST,
+    ...COACH,
     "match.delete",
     "org.manage",
     "members.manage",
     "billing.manage",
     "org.delete",
   ]),
-  admin: new Set<Permission>([...ANALYST, "match.delete", "org.manage", "members.manage", "billing.manage"]),
+  admin: new Set<Permission>([...COACH, "match.delete", "org.manage", "members.manage", "billing.manage"]),
   // Deleting a match destroys footage and results for the whole workspace: owners and admins only.
-  coach: new Set<Permission>(ANALYST),
+  coach: new Set<Permission>(COACH),
   analyst: new Set<Permission>(ANALYST),
   scout: new Set<Permission>(READ),
-  // TODO(phase 4): restrict players to matches of their own teams.
+  // Players see their own development plan through an object-level check (development/service.ts),
+  // not through a role permission. TODO(phase 4): restrict players to matches of their own teams.
   player: new Set<Permission>(READ),
 };
 

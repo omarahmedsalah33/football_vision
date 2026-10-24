@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 // source the server enforces, so this page can never promise more than the product allows.
 const COPY: Record<string, { for: string; highlights: string[]; featured?: boolean }> = {
   free: { for: "Try it on a real match", highlights: ["Basic match summary", "Guided onboarding"] },
-  player_pro: { for: "Individual players", highlights: ["Personal performance reports", "Development tracking"] },
+  player_pro: { for: "Individual players", highlights: ["Personal performance reports", "Development plans and training log"] },
   coach_pro: { for: "Coaches and small teams", highlights: ["Team tactical analysis", "Exportable reports"] },
   club: {
     for: "Clubs and academies",
@@ -34,6 +34,7 @@ function limitRows(l: PlanLimits) {
     ["Longest video", `${Math.round(l.maxVideoDurationSeconds / 60)} min`],
     ["Workspace members", String(l.maxMembers)],
     ["Teams", String(l.maxTeams)],
+    ["Active development plans", String(l.maxActivePlans)],
     ["Footage kept for", `${l.retentionDays} days`],
   ];
 }

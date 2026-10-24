@@ -11,6 +11,7 @@ import { listMatches, matchThumbnails } from "@/server/matches/service";
 import { workspaceOverview } from "@/server/orgs/overview";
 import { getStorage } from "@/server/storage/s3";
 import { PlayerAvatar, ScoreDial } from "@/components/player-ui";
+import { squadDevelopment, type PlanSummary } from "@/server/development/service";
 import { myPlayer, profileStats } from "@/server/players/service";
 
 export const metadata: Metadata = { title: "Home" };
@@ -51,6 +52,7 @@ async function Home({ params }: { params: PageProps<"/app/[org]">["params"] }) {
   const [matches, overview, me] = await Promise.all([listMatches(db, actor), workspaceOverview(db, actor), myPlayer(db, actor)]);
   const myStats = me ? (await profileStats(db, actor, [me.id])).get(me.id)! : null;
   const myPhoto = myStats?.photoTrack ? await getStorage().presignGet(myStats.photoTrack.cropKey, "image/jpeg", 600) : null;
+  const myPlan = me ? ((await squadDevelopment(db, actor, new Date(), { playerId: me.id })).get(me.id) ?? null) : null;
   const base = `/app/${actor.orgSlug}`;
   const canCreate = can(actor.role, "match.create");
   const canAct = can(actor.role, "analysis.run");
@@ -214,6 +216,7 @@ async function Home({ params }: { params: PageProps<"/app/[org]">["params"] }) {
 
           <aside className="space-y-6">
             {me && myStats && <MyProfileCard href={`${base}/players/${me.id}`} name={me.name} photoUrl={myPhoto} stats={myStats.stats.totals} />}
+            {me && <MyPlanCard href={`${base}/players/${me.id}/development`} plan={myPlan} />}
             {showChecklist && (
               <section aria-labelledby="start-heading" className="relative rounded-2xl border border-border bg-surface p-5">
                 <CornerMarks tone="pitchline" size={16} />
@@ -328,3 +331,27 @@ function MyProfileCard({ href, name, photoUrl, stats }: { href: string; name: st
   );
 }
 
+
+function MyPlanCard({ href, plan }: { href: string; plan: PlanSummary | null }) {
+  const pct = plan && plan.thisWeekPlanned ? Math.min(100, (plan.thisWeekDone / plan.thisWeekPlanned) * 100) : 0;
+  return (
+    <Link href={href} className="group relative block rounded-2xl border border-border bg-surface p-5 transition-colors hover:border-mindaro">
+      <p className="font-data text-xs uppercase tracking-[0.2em] text-muted">{plan ? "This week’s training" : "Development"}</p>
+      {plan ? (
+        <>
+          <p className="mt-2 truncate font-semibold group-hover:text-mindaro">{plan.title}</p>
+          <p className="mt-1 font-display text-3xl font-bold">
+            {plan.thisWeekDone}
+            <span className="text-lg text-muted"> / {plan.thisWeekPlanned} sessions</span>
+          </p>
+          <div role="meter" aria-label="Sessions done this week" aria-valuemin={0} aria-valuemax={plan.thisWeekPlanned} aria-valuenow={plan.thisWeekDone} className="mt-2 h-1.5 overflow-hidden rounded-full bg-bg">
+            <div className="h-full bg-mindaro" style={{ width: `${pct}%` }} />
+          </div>
+          {plan.reviewDue && <p className="mt-2 text-xs text-gold">Review due: time to check what changed.</p>}
+        </>
+      ) : (
+        <p className="mt-2 text-sm text-muted group-hover:text-fg">See what to work on and start a training plan →</p>
+      )}
+    </Link>
+  );
+}

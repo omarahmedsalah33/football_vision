@@ -74,6 +74,22 @@ const paths = {
       <path d="M12 10v4.5M12 17.2v.3" strokeLinecap="round" />
     </>
   ),
+  // Training cone
+  training: (
+    <>
+      <path d="M9.5 5h5l3.5 13h-12L9.5 5Z" strokeLinejoin="round" />
+      <path d="M8.4 10h7.2M7.3 14h9.4M3 18.5h18" strokeLinecap="round" />
+    </>
+  ),
+  target: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="4.5" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+    </>
+  ),
+  chat: <path d="M4 5.5h16v10H10l-4.5 3.5v-3.5H4z" strokeLinejoin="round" />,
+  trend: <path d="M3 17l6-6 4 4 8-8m0 0h-5m5 0v5" strokeLinecap="round" strokeLinejoin="round" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

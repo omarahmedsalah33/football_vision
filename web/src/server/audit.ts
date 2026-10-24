@@ -15,6 +15,10 @@ export type AuditAction =
   | "player.created"
   | "player.updated"
   | "player.archived"
+  | "plan.created"
+  | "plan.closed"
+  | "drill.created"
+  | "drill.archived"
   | "billing.plan_changed"
   | "account.deleted";
 

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 /** Shared visual pieces for player cards and profiles (server-safe: no hooks). */
@@ -66,4 +67,27 @@ export const FOOT_LABEL = { left: "Left-footed", right: "Right-footed", both: "T
 
 export function Chip({ children }: { children: ReactNode }) {
   return <span className="rounded-full border border-border bg-bg/60 px-3 py-1 text-xs text-fg/90">{children}</span>;
+}
+
+/** Profile | Development tabs for one player. */
+export function ProfileTabs({ base, playerId, active, showDevelopment }: { base: string; playerId: string; active: "profile" | "development"; showDevelopment: boolean }) {
+  if (!showDevelopment) return null;
+  const tabs = [
+    { key: "profile", label: "Profile", href: `${base}/players/${playerId}` },
+    { key: "development", label: "Development", href: `${base}/players/${playerId}/development` },
+  ] as const;
+  return (
+    <nav aria-label="Player sections" className="flex gap-1 border-b border-border">
+      {tabs.map((t) => (
+        <Link
+          key={t.key}
+          href={t.href}
+          aria-current={active === t.key ? "page" : undefined}
+          className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${active === t.key ? "border-mindaro text-fg" : "border-transparent text-muted hover:text-fg"}`}
+        >
+          {t.label}
+        </Link>
+      ))}
+    </nav>
+  );
 }

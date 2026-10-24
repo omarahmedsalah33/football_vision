@@ -16,7 +16,7 @@ Every number points back to the moment in the video it came from and says how it
 ![PyTorch](https://img.shields.io/badge/PyTorch-CUDA-0B1F17?style=for-the-badge&logo=pytorch&logoColor=E8B33D)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-0B1F17?style=for-the-badge&logo=postgresql&logoColor=D9F67D)
 
-![Tests](https://img.shields.io/badge/tests-253_passing-2E8B57?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-271_passing-2E8B57?style=flat-square)
 ![Accessibility](https://img.shields.io/badge/WCAG_2.1_AA-0_serious_issues-2E8B57?style=flat-square)
 ![CSP](https://img.shields.io/badge/CSP-strict_nonce-2E8B57?style=flat-square)
 ![Status](https://img.shields.io/badge/status-early_access-E8B33D?style=flat-square)
@@ -87,6 +87,9 @@ Football Vision is **early-access software**. This table only lists what is buil
 | 👥 | **Team management**: 6 roles, one permission matrix, single-use email-bound invitations | ✅ Live |
 | 👋 | **Onboarding by persona**: player, coach, club or academy, scout, parent; players set up their profile straight away | ✅ Live |
 | 🧑 | **Player profiles**: for individual players and for every squad member; built from every match they're linked to ("This is me" / link to a squad player): average score, form chart, top speed, sprints, distance, consistent strengths and weaknesses, heatmap across matches, match log | 🟡 Beta, tested on synthetic truth |
+| 🎯 | **Development plans**: priorities built from match evidence and coach ratings (each with its evidence, how sure we are, possible reasons, drills and a measurable goal); plans with up to 3 objectives, baseline → target, drills from a 23-drill training library, sessions per week; players log sessions with effort and reflections, coaches give feedback; progress keeps "training done" and "measured change" apart and only counts matches played after the plan started | 🟡 Beta |
+| ⭐ | **Coach and self ratings**: 1–5 ratings for technical, tactical and defensive areas the video can't measure yet, always shown as opinions, never as measurements | ✅ Live |
+| 📚 | **Training library**: starter drills for every area (steps, coaching points, progressions, success criteria, safety), plus each club's own drills | ✅ Live |
 | 🏠 | **Workspace home**: next step for every match, live processing, latest results, your profile, getting-started checklist | ✅ Live |
 | 📤 | **Uploads**: large match videos sent straight to private storage in signed parts | ✅ Live |
 | 🎞️ | **Video checks**: format, duration and resolution probed in an isolated, time-limited process; 8 frames extracted; camera labelled fixed or moving | ✅ Live |
@@ -155,6 +158,27 @@ flowchart LR
 <sub>Score out of 100, form, top speed, sprints and strengths that hold across matches; built from every match the player is linked to.</sub>
 
 <img src="docs/images/player-profile.png" alt="My profile: player card with shirt number, position, foot and age, average score 95, top speed, distance, sprints, form chart and strengths"/>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Development priorities**<br/>
+<sub>What to work on, with the evidence, how sure we are, possible reasons, drills and how progress will be measured.</sub>
+
+<img src="docs/images/development-priorities.png" alt="Development priorities: work rate and high-intensity running ranked 25/100, limited evidence, possible reasons, drills, measurable goal"/>
+
+</td>
+<td width="50%" valign="top">
+
+**An active plan**<br/>
+<sub>Training done and measured change tracked separately; log each session with effort and a reflection.</sub>
+
+<img src="docs/images/development-plan.png" alt="Active plan: training done 1 of 8 sessions, 0 of 2 objectives improving, objectives with baseline and target waiting for the next match, drills with Log session"/>
+
+</td>
+</tr>
+</table>
 
 <table>
 <tr>
@@ -408,9 +432,9 @@ Results of the latest full run (2026-10-24):
 
 | Suite | Count | What it covers |
 |---|---:|---|
-| **Web unit + integration** (Vitest) | **140** | Permissions, tenancy, members, invitations, quota, uploads (real S3), rate limits, HTTP layer, webhooks, homography and plausibility, calibration (formats, moving cameras, reuse), match deletion, player reports, player profiles (aggregation, linking, latest-analysis rule, tenancy), onboarding, results, migrations |
+| **Web unit + integration** (Vitest) | **157** | Permissions, tenancy, members, invitations, quota, uploads (real S3), rate limits, HTTP layer, webhooks, homography and plausibility, calibration (formats, moving cameras, reuse), match deletion, player reports, player profiles (aggregation, linking, latest-analysis rule, tenancy), onboarding, development plans (priorities, baselines computed on the server, plan limit under concurrent requests, players logging only their own plan, follow-up evidence rules, club drills kept inside their workspace), results, migrations |
 | **Worker** (pytest) | **90** | Queue leases and fencing, video validation and camera labelling, pipeline, maintenance (incl. photo purge), tracking and fragment joining, team separation, running profiles, camera following (pan/zoom, cuts, line checks), moving-camera analysis, automatic calibration safety, synthetic-match accuracy, evaluation scoring |
-| **Browser end-to-end** (Playwright) | **23** | Real sign-in, upload → automatic analysis start → results with a real RF-DETR run on the GPU, guided calibration, a new player's sign-up → profile → "This is me" → profile filled in, squad linking, match deletion, two-user team flows, account deletion, phone navigation, CSP headers, axe accessibility scans |
+| **Browser end-to-end** (Playwright) | **24** | Real sign-in, upload → automatic analysis start → results with a real RF-DETR run on the GPU, guided calibration, a new player's sign-up → profile → "This is me" → profile filled in, development priorities → plan → session logged → reflection → self rating, squad linking, match deletion, two-user team flows, account deletion, phone navigation, CSP headers, axe accessibility scans |
 
 All passed first try, the production build passes, and `pip-audit` is clean.
 
@@ -470,7 +494,7 @@ football_vision/
 | **1 · Foundation** | Architecture, data model, auth, CI, infrastructure | ✅ Done |
 | **2 · Core SaaS** | Workspaces, roles, invitations, uploads, quotas, retention, audit, account deletion | ✅ Done |
 | **3 · First AI slice** | Calibration, detection, tracking, teams, team-shape metrics, results UI, evaluation harness | ✅ Built · 🟡 real-footage accuracy pending |
-| **4 · Analytics** | Player reports and profiles, team separation, moving cameras (done, beta); automatic pitch finding, ball tracking, video playback synced to the timeline, "Ask your match" | 🟡 In progress |
+| **4 · Analytics** | Player reports and profiles, development plans and training library, team separation, moving cameras (done, beta); player ownership and consent with academies, academy dashboards, scouting (next, see [platform plan](docs/PLATFORM_PLAN.md)); automatic pitch finding, ball tracking, video playback synced to the timeline, "Ask your match" | 🟡 In progress |
 | **5 · Commercial** | Payment provider, PDF reports, expiring share links, email delivery | 🟡 Plans and limits enforced; payments not connected |
 | **6 · Production** | Hardened containers, least-privilege DB roles, deployment, backups with restore drills, monitoring | 🟡 Strict CSP, CI and migration guard in place |
 

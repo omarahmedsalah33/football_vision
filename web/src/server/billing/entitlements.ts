@@ -10,6 +10,8 @@ export const planLimitsSchema = z.object({
   maxMembers: z.number().int().positive(),
   maxTeams: z.number().int().positive(),
   retentionDays: z.number().int().positive(),
+  // Development plans that can be active at once in the workspace.
+  maxActivePlans: z.number().int().min(0),
 });
 export type PlanLimits = z.infer<typeof planLimitsSchema>;
 
