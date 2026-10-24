@@ -9,7 +9,7 @@ export default function UserLayout({ children }: LayoutProps<"/app">) {
     <AppShell
       sidebar={
         <div className="flex min-h-full flex-col gap-6 p-4">
-          <Link href="/app" aria-label="Your workspace" className="px-1 pt-1">
+          <Link href="/app" aria-label="Football Vision home" className="px-1 pt-1">
             <Logo className="!text-xl" />
           </Link>
           <nav aria-label="Account" className="space-y-1">

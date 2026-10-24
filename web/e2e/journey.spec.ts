@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 import { Client } from "pg";
 import { apply, fitHomography } from "../src/lib/pitch/homography";
 import { LANDMARK_BY_ID, STANDARD_PITCH } from "../src/lib/pitch/landmarks";
+import { openApp } from "./app";
 import { trackBrowserErrors } from "./browser-errors";
 import { E2E_EMAIL, FIXTURE_VIDEO, WORKER_PYTHON } from "./global-setup";
 
@@ -89,7 +90,7 @@ test("coach signs in, uploads footage, calibrates the pitch and gets an analysis
   await page.goto("/");
   await clerk.signIn({ page, emailAddress: E2E_EMAIL });
 
-  await page.goto("/app");
+  await openApp(page);
   // Signing in lands on the workspace home.
   await expect(page).toHaveURL(/\/app\/[^/]+$/);
   await expect(page.getByRole("heading", { name: /^Welcome back/ })).toBeVisible();
@@ -195,7 +196,7 @@ test("an owner deletes a match after confirming", async ({ page }) => {
   await clerk.signIn({ page, emailAddress: E2E_EMAIL });
 
   const title = `E2E Delete me ${Date.now()}`;
-  await page.goto("/app");
+  await openApp(page);
   await page.getByRole("link", { name: "New match", exact: true }).first().click();
   await page.getByLabel("Match title").fill(title);
   await page.getByRole("button", { name: "Create match" }).click();

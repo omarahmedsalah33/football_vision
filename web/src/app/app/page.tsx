@@ -14,6 +14,8 @@ export default function AppIndex() {
 
 async function OpenFirstWorkspace(): Promise<never> {
   const user = await pageUser();
+  // New users choose how they'll use the product first (player, coach, club, scout, parent).
+  if (!user.onboardedAt) redirect("/app/welcome");
   const orgs = await listMyOrgs(getDb(), user.id);
   // Every user has a personal workspace (created on first sign-in), so this list is never empty.
   redirect(`/app/${orgs[0].slug}`);

@@ -16,7 +16,7 @@ Every number points back to the moment in the video it came from and says how it
 ![PyTorch](https://img.shields.io/badge/PyTorch-CUDA-0B1F17?style=for-the-badge&logo=pytorch&logoColor=E8B33D)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-0B1F17?style=for-the-badge&logo=postgresql&logoColor=D9F67D)
 
-![Tests](https://img.shields.io/badge/tests-239_passing-2E8B57?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-253_passing-2E8B57?style=flat-square)
 ![Accessibility](https://img.shields.io/badge/WCAG_2.1_AA-0_serious_issues-2E8B57?style=flat-square)
 ![CSP](https://img.shields.io/badge/CSP-strict_nonce-2E8B57?style=flat-square)
 ![Status](https://img.shields.io/badge/status-early_access-E8B33D?style=flat-square)
@@ -85,7 +85,9 @@ Football Vision is **early-access software**. This table only lists what is buil
 |---|---|---|
 | 🏟️ | **Workspaces**: personal, club and academy workspaces with a switcher | ✅ Live |
 | 👥 | **Team management**: 6 roles, one permission matrix, single-use email-bound invitations | ✅ Live |
-| 🏠 | **Workspace home**: next step for every match, live processing, latest results, getting-started checklist | ✅ Live |
+| 👋 | **Onboarding by persona**: player, coach, club or academy, scout, parent; players set up their profile straight away | ✅ Live |
+| 🧑 | **Player profiles**: for individual players and for every squad member; built from every match they're linked to ("This is me" / link to a squad player): average score, form chart, top speed, sprints, distance, consistent strengths and weaknesses, heatmap across matches, match log | 🟡 Beta, tested on synthetic truth |
+| 🏠 | **Workspace home**: next step for every match, live processing, latest results, your profile, getting-started checklist | ✅ Live |
 | 📤 | **Uploads**: large match videos sent straight to private storage in signed parts | ✅ Live |
 | 🎞️ | **Video checks**: format, duration and resolution probed in an isolated, time-limited process; 8 frames extracted; camera labelled fixed or moving | ✅ Live |
 | 📐 | **Guided pitch calibration**: pick the pitch type (11, 9, 7/8 or 5/6-a-side), click the points asked for one at a time, plain-language accuracy, reuse a camera spot | ✅ Live |
@@ -149,6 +151,32 @@ flowchart LR
 
 ## Inside the product
 
+**A player's own profile**<br/>
+<sub>Score out of 100, form, top speed, sprints and strengths that hold across matches; built from every match the player is linked to.</sub>
+
+<img src="docs/images/player-profile.png" alt="My profile: player card with shirt number, position, foot and age, average score 95, top speed, distance, sprints, form chart and strengths"/>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Welcome: who are you?**<br/>
+<sub>Players, coaches, clubs, scouts and parents each get the right setup.</sub>
+
+<img src="docs/images/welcome.png" alt="Welcome screen with five choices: player, coach, club or academy, scout, parent"/>
+
+</td>
+<td width="50%" valign="top">
+
+**One player's match report**<br/>
+<sub>How the score is built, strengths and what to work on; "This is me" links it to a profile.</sub>
+
+<img src="docs/images/player-report.png" alt="Player report dialog: score 95, strengths with numbers, score breakdown bars"/>
+
+</td>
+</tr>
+</table>
+
 **Workspace home**<br/>
 <sub>Every match with its next step, what's processing, the latest results and filming tips.</sub>
 
@@ -159,26 +187,10 @@ flowchart LR
 
 <img src="docs/images/players.png" alt="Players section: cards with photo placeholder, team, zone, score ring, distance, top speed, sprints, a strength or weakness"/>
 
-<table>
-<tr>
-<td width="50%" valign="top">
-
-**One player's report**<br/>
-<sub>How the score is built, strengths and what to work on, heatmap; staff add the name and shirt number.</sub>
-
-<img src="docs/images/player-report.png" alt="Player report dialog: score 95, strengths with numbers, score breakdown bars"/>
-
-</td>
-<td width="50%" valign="top">
-
 **Guided calibration**<br/>
 <sub>Pick the pitch type, then click the points asked for. Green pitch lines show the fit; accuracy in plain words.</sub>
 
 <img src="docs/images/calibration.png" alt="Guided calibration: frame strip, pitch lines over the frame, pitch drawing with the next point, 'Great: accurate to about 0.1 m'"/>
-
-</td>
-</tr>
-</table>
 
 **Results: reliability panel and team shape over time**
 
@@ -189,7 +201,7 @@ flowchart LR
 <img src="docs/images/results-positions.png" alt="Average positions of both teams on a pitch diagram, and a heatmap of where Team A played"/>
 
 > [!NOTE]
-> Results and player screenshots show **synthetic test data** used for testing, not a real match.
+> Results, player and profile screenshots show **synthetic test data** used for testing, not a real match or a real person.
 
 ```mermaid
 flowchart TB
@@ -396,9 +408,9 @@ Results of the latest full run (2026-10-24):
 
 | Suite | Count | What it covers |
 |---|---:|---|
-| **Web unit + integration** (Vitest) | **127** | Permissions, tenancy, members, invitations, quota, uploads (real S3), rate limits, HTTP layer, webhooks, homography and plausibility, calibration (formats, moving cameras, reuse), match deletion, player reports and naming, results, migrations |
+| **Web unit + integration** (Vitest) | **140** | Permissions, tenancy, members, invitations, quota, uploads (real S3), rate limits, HTTP layer, webhooks, homography and plausibility, calibration (formats, moving cameras, reuse), match deletion, player reports, player profiles (aggregation, linking, latest-analysis rule, tenancy), onboarding, results, migrations |
 | **Worker** (pytest) | **90** | Queue leases and fencing, video validation and camera labelling, pipeline, maintenance (incl. photo purge), tracking and fragment joining, team separation, running profiles, camera following (pan/zoom, cuts, line checks), moving-camera analysis, automatic calibration safety, synthetic-match accuracy, evaluation scoring |
-| **Browser end-to-end** (Playwright) | **22** | Real sign-in, upload → automatic analysis start → results with a real RF-DETR run on the GPU, guided calibration, player reports and naming, match deletion, two-user team flows, account deletion, phone navigation, CSP headers, axe accessibility scans |
+| **Browser end-to-end** (Playwright) | **23** | Real sign-in, upload → automatic analysis start → results with a real RF-DETR run on the GPU, guided calibration, a new player's sign-up → profile → "This is me" → profile filled in, squad linking, match deletion, two-user team flows, account deletion, phone navigation, CSP headers, axe accessibility scans |
 
 All passed first try, the production build passes, and `pip-audit` is clean.
 
@@ -458,7 +470,7 @@ football_vision/
 | **1 · Foundation** | Architecture, data model, auth, CI, infrastructure | ✅ Done |
 | **2 · Core SaaS** | Workspaces, roles, invitations, uploads, quotas, retention, audit, account deletion | ✅ Done |
 | **3 · First AI slice** | Calibration, detection, tracking, teams, team-shape metrics, results UI, evaluation harness | ✅ Built · 🟡 real-footage accuracy pending |
-| **4 · Analytics** | Player reports, team separation, moving cameras (done, beta); automatic pitch finding, ball tracking, video playback synced to the timeline, "Ask your match" | 🟡 In progress |
+| **4 · Analytics** | Player reports and profiles, team separation, moving cameras (done, beta); automatic pitch finding, ball tracking, video playback synced to the timeline, "Ask your match" | 🟡 In progress |
 | **5 · Commercial** | Payment provider, PDF reports, expiring share links, email delivery | 🟡 Plans and limits enforced; payments not connected |
 | **6 · Production** | Hardened containers, least-privilege DB roles, deployment, backups with restore drills, monitoring | 🟡 Strict CSP, CI and migration guard in place |
 

@@ -1,11 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
+import { Icon } from "@/components/app-ui";
 import { Pitch } from "@/components/pitch";
 import { Badge, Button, Card } from "@/components/ui";
 import type { Component, PlayerReport } from "@/lib/analysis/player-report";
-import { apiRequest, ApiError } from "@/lib/api-client";
+import { apiPost, ApiError } from "@/lib/api-client";
+
+export type RosterEntry = { id: string; name: string; shirtNumber: number | null };
 
 export type PlayerView = PlayerReport & {
   photoUrl: string | null;
@@ -15,12 +19,18 @@ export type PlayerView = PlayerReport & {
   topSpeedKmh: number;
   sprints: number;
   heatmap: number[][];
+  /** The player profile this tracked player is linked to. */
+  linkedPlayer: RosterEntry | null;
 };
 
 const TEAM = { a: { name: "Team A", color: "var(--mindaro)" }, b: { name: "Team B", color: "var(--gold)" }, other: { name: "Other", color: "var(--cascade)" } } as const;
 
 function displayName(p: PlayerView) {
-  return p.name ?? `Player ${p.trackNo}`;
+  return p.linkedPlayer?.name ?? p.name ?? `Player ${p.trackNo}`;
+}
+
+function shirt(p: PlayerView) {
+  return p.linkedPlayer ? p.linkedPlayer.shirtNumber : p.shirtNumber;
 }
 
 function ScoreRing({ score, size = 64 }: { score: number | null; size?: number }) {
@@ -76,15 +86,21 @@ function ComponentBar({ c }: { c: Component }) {
 export function PlayersPanel({
   players,
   orgId,
+  orgSlug,
   jobId,
   canEdit,
   pitch,
+  roster,
+  myPlayerId,
 }: {
   players: PlayerView[];
   orgId: string;
+  orgSlug: string;
   jobId: string;
   canEdit: boolean;
   pitch: { length: number; width: number; boxes: boolean };
+  roster: RosterEntry[];
+  myPlayerId: string | null;
 }) {
   const [team, setTeam] = useState<"all" | "a" | "b">("all");
   const [open, setOpen] = useState<PlayerView | null>(null);
@@ -145,7 +161,8 @@ export function PlayersPanel({
                   <Photo p={p} className="h-16 w-12 shrink-0 rounded-lg" />
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-2 truncate font-semibold group-hover:text-mindaro">
-                      {p.shirtNumber != null && <span className="font-data rounded bg-surface-2 px-1.5 text-xs">#{p.shirtNumber}</span>}
+                      {p.linkedPlayer && <Icon name="link" className="h-4 w-4 shrink-0 text-mindaro" />}
+                      {shirt(p) != null && <span className="font-data rounded bg-surface-2 px-1.5 text-xs">#{shirt(p)}</span>}
                       <span className="truncate">{displayName(p)}</span>
                     </p>
                     <p className="flex items-center gap-1.5 text-xs text-muted">
@@ -196,51 +213,155 @@ export function PlayersPanel({
         className="m-auto w-[min(720px,calc(100vw-2rem))] rounded-2xl border border-border bg-surface p-0 text-fg backdrop:bg-black/70"
         aria-label={open ? `Report for ${displayName(open)}` : "Player report"}
       >
-        {open && <PlayerReportView key={open.trackNo} p={open} orgId={orgId} jobId={jobId} canEdit={canEdit} pitch={pitch} onClose={() => dialog.current?.close()} />}
+        {open && (
+          <PlayerReportView
+            key={open.trackNo}
+            p={open}
+            orgId={orgId}
+            orgSlug={orgSlug}
+            jobId={jobId}
+            canEdit={canEdit}
+            pitch={pitch}
+            roster={roster}
+            myPlayerId={myPlayerId}
+            onClose={() => dialog.current?.close()}
+          />
+        )}
       </dialog>
     </Card>
+  );
+}
+
+/** "Who is this?": links the tracked player to a profile, so this match counts on that profile. */
+function WhoIsThis({ p, orgId, orgSlug, jobId, roster, myPlayerId, onDone }: { p: PlayerView; orgId: string; orgSlug: string; jobId: string; roster: RosterEntry[]; myPlayerId: string | null; onDone: () => void }) {
+  const router = useRouter();
+  const [choice, setChoice] = useState<string>("");
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function link(playerId: string | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost(`/api/orgs/${orgId}/analyses/${jobId}/players/${p.trackNo}/link`, { playerId });
+      router.refresh();
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save.");
+      setBusy(false);
+    }
+  }
+
+  async function createAndLink() {
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await apiPost<{ id: string }>(`/api/orgs/${orgId}/players`, { name: newName.trim() });
+      await link(created.id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not add the player.");
+      setBusy(false);
+    }
+  }
+
+  if (p.linkedPlayer) {
+    return (
+      <section aria-labelledby="who-h" className="mt-6 rounded-xl border border-mindaro/40 bg-accent-soft p-4">
+        <h5 id="who-h" className="flex items-center gap-2 font-semibold">
+          <Icon name="link" className="h-4 w-4 text-mindaro" /> Linked to {p.linkedPlayer.name}
+        </h5>
+        <p className="mt-1 text-sm text-muted">This match counts on their profile.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link href={`/app/${orgSlug}/players/${p.linkedPlayer.id}`} className="inline-flex items-center gap-1 text-sm text-mindaro underline-offset-4 hover:underline">
+            Open profile <Icon name="arrow" className="h-4 w-4" />
+          </Link>
+          <button type="button" disabled={busy} onClick={() => void link(null)} className="ml-auto text-sm text-muted underline underline-offset-4 hover:text-fg">
+            Unlink
+          </button>
+        </div>
+        {error && (
+          <p role="alert" className="mt-2 text-sm text-danger">
+            {error}
+          </p>
+        )}
+      </section>
+    );
+  }
+  return (
+    <section aria-labelledby="who-h" className="mt-6 rounded-xl border border-border bg-bg p-4">
+      <h5 id="who-h" className="font-semibold">Who is this?</h5>
+      <p className="mt-1 text-sm text-muted">Link this player to a profile and the match counts on it: score, speed, sprints, form.</p>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        {myPlayerId && (
+          <Button disabled={busy} onClick={() => void link(myPlayerId)}>
+            <Icon name="user" className="h-4 w-4" />
+            This is me
+          </Button>
+        )}
+        <label className="min-w-48 flex-1 text-sm">
+          {myPlayerId ? "Or link to a player" : "Link to a player"}
+          <select value={choice} onChange={(e) => setChoice(e.target.value)} className="mt-1 w-full rounded-lg border border-border-strong bg-surface px-3 py-2">
+            <option value="">Choose…</option>
+            {roster
+              .filter((r) => r.id !== myPlayerId)
+              .map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.shirtNumber != null ? `#${r.shirtNumber} ` : ""}
+                  {r.name}
+                </option>
+              ))}
+            <option value="new">+ Add a new player…</option>
+          </select>
+        </label>
+        {choice && choice !== "new" && (
+          <Button variant="secondary" disabled={busy} onClick={() => void link(choice)}>
+            Link
+          </Button>
+        )}
+      </div>
+      {choice === "new" && (
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="min-w-48 flex-1 text-sm">
+            New player&apos;s name
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={60} className="mt-1 w-full rounded-lg border border-border-strong bg-surface px-3 py-2" placeholder="e.g. Omar Hassan" />
+          </label>
+          <Button variant="secondary" disabled={busy || !newName.trim()} onClick={() => void createAndLink()}>
+            Add and link
+          </Button>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 
 function PlayerReportView({
   p,
   orgId,
+  orgSlug,
   jobId,
   canEdit,
   pitch,
+  roster,
+  myPlayerId,
   onClose,
 }: {
   p: PlayerView;
   orgId: string;
+  orgSlug: string;
   jobId: string;
   canEdit: boolean;
   pitch: { length: number; width: number; boxes: boolean };
+  roster: RosterEntry[];
+  myPlayerId: string | null;
   onClose: () => void;
 }) {
-  const router = useRouter();
-  const [name, setName] = useState(p.name ?? "");
-  const [number, setNumber] = useState(p.shirtNumber?.toString() ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const max = Math.max(1, ...p.heatmap.flat());
-
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await apiRequest("PATCH", `/api/orgs/${orgId}/analyses/${jobId}/players/${p.trackNo}`, {
-        name: name.trim() || null,
-        shirtNumber: number === "" ? null : Number(number),
-      });
-      router.refresh();
-      onClose();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not save.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   return (
     <div className="relative max-h-[85vh] overflow-y-auto p-6">
@@ -260,7 +381,7 @@ function PlayerReportView({
         <Photo p={p} className="h-28 w-20 shrink-0 rounded-xl" />
         <div className="min-w-0 flex-1">
           <h4 className="font-display text-3xl font-bold uppercase leading-none">
-            {p.shirtNumber != null && <span className="text-mindaro">#{p.shirtNumber} </span>}
+            {shirt(p) != null && <span className="text-mindaro">#{shirt(p)} </span>}
             {displayName(p)}
           </h4>
           <p className="mt-1 text-sm text-muted">
@@ -312,26 +433,7 @@ function PlayerReportView({
         </Pitch>
       </section>
 
-      {canEdit && (
-        <form onSubmit={save} className="mt-6 grid gap-3 rounded-xl border border-border bg-bg p-4 sm:grid-cols-[1fr_120px_auto] sm:items-end">
-          <label className="text-sm">
-            Player name
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} className="mt-1 w-full rounded-lg border border-border-strong bg-surface px-3 py-2" placeholder="e.g. Omar Hassan" />
-          </label>
-          <label className="text-sm">
-            Shirt number
-            <input value={number} onChange={(e) => setNumber(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" className="font-data mt-1 w-full rounded-lg border border-border-strong bg-surface px-3 py-2" />
-          </label>
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
-          {error && (
-            <p role="alert" className="text-sm text-danger sm:col-span-3">
-              {error}
-            </p>
-          )}
-        </form>
-      )}
+      {canEdit && p.team !== "other" && <WhoIsThis p={p} orgId={orgId} orgSlug={orgSlug} jobId={jobId} roster={roster} myPlayerId={myPlayerId} onDone={onClose} />}
       <div className="mt-6 flex justify-end">
         <Button variant="secondary" onClick={onClose}>
           Close

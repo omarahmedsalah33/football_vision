@@ -2,6 +2,7 @@ import { Badge, Card } from "@/components/ui";
 import { buildReports } from "@/lib/analysis/player-report";
 import { hasStandardBoxes } from "@/lib/pitch/landmarks";
 import { playerLabelsFor, playerPhotoUrls } from "@/server/analysis/players";
+import { listPlayers, myPlayer, trackLinks } from "@/server/players/service";
 import { pageActor } from "@/server/auth/page";
 import { can } from "@/server/authz/permissions";
 import { getDb } from "@/server/db/client";
@@ -38,7 +39,14 @@ export async function AnalysisResults({ orgSlug, matchId, jobId }: { orgSlug: st
   const actor = await pageActor(orgSlug);
   const db = getDb();
   const { summary, tracks } = await getAnalysisResults(db, actor, matchId, jobId);
-  const [labels, photos] = await Promise.all([playerLabelsFor(db, actor, jobId), playerPhotoUrls(getStorage(), tracks)]);
+  const [labels, photos, roster, me, links] = await Promise.all([
+    playerLabelsFor(db, actor, jobId),
+    playerPhotoUrls(getStorage(), tracks),
+    listPlayers(db, actor),
+    myPlayer(db, actor),
+    trackLinks(db, actor, jobId),
+  ]);
+  const rosterOf = new Map(roster.map((r) => [r.id, { id: r.id, name: r.name, shirtNumber: r.shirtNumber }]));
   const labelOf = new Map(labels.map((l) => [l.trackNo, l]));
   const trackOf = new Map(tracks.map((t) => [t.trackNo, t]));
   const players: PlayerView[] = buildReports(tracks, summary.pitch.length).map((r) => {
@@ -52,6 +60,7 @@ export async function AnalysisResults({ orgSlug, matchId, jobId }: { orgSlug: st
       topSpeedKmh: (t.metrics.top_speed_ms ?? 0) * 3.6,
       sprints: t.metrics.sprints ?? 0,
       heatmap: t.heatmap,
+      linkedPlayer: links.has(r.trackNo) ? (rosterOf.get(links.get(r.trackNo)!) ?? null) : null,
     };
   });
   const pitchView = { length: summary.pitch.length, width: summary.pitch.width, boxes: hasStandardBoxes(summary.pitch, summary.pitch.playersPerSide) };
@@ -124,7 +133,16 @@ export async function AnalysisResults({ orgSlug, matchId, jobId }: { orgSlug: st
         </Card>
       ) : (
         <>
-          <PlayersPanel players={players} orgId={actor.orgId} jobId={jobId} canEdit={can(actor.role, "match.update")} pitch={pitchView} />
+          <PlayersPanel
+            players={players}
+            orgId={actor.orgId}
+            orgSlug={actor.orgSlug}
+            jobId={jobId}
+            canEdit={can(actor.role, "player.manage")}
+            pitch={pitchView}
+            roster={roster.map((r) => ({ id: r.id, name: r.name, shirtNumber: r.shirtNumber }))}
+            myPlayerId={me?.id ?? null}
+          />
           {/* Storage keys and raw profiles stay on the server. */}
           <ResultsView
             summary={summary}

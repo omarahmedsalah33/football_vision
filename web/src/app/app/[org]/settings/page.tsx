@@ -23,6 +23,9 @@ const ACTION_LABEL: Record<string, string> = {
   "member.removed": "Member removed",
   "member.left": "Member left",
   "match.deleted": "Match deleted",
+  "player.created": "Player profile created",
+  "player.updated": "Player profile updated",
+  "player.archived": "Player profile archived",
   "billing.plan_changed": "Plan changed",
 };
 

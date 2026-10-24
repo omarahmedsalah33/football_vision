@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createClerkClient } from "@clerk/backend";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { openApp } from "./app";
 import { trackBrowserErrors } from "./browser-errors";
 import { E2E_EMAIL, E2E_EMAIL_2 } from "./global-setup";
 
@@ -79,7 +80,7 @@ test("a user can delete their account, which also removes it from the identity p
 
   const page = await signedIn(browser, email);
   const errors = trackBrowserErrors(page);
-  await page.goto("/app"); // first visit creates the local account and personal workspace
+  await openApp(page); // first visit creates the local account and personal workspace
   await expect(page).toHaveURL(/\/app\/[^/]+$/);
 
   await page.goto("/app/account");

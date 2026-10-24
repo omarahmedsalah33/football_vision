@@ -37,12 +37,17 @@ export const subscriptionStatus = pgEnum("subscription_status", [
   "expired",
 ]);
 
+// How someone uses the product, chosen at onboarding; shapes their home and navigation only.
+export const persona = pgEnum("persona", ["player", "coach", "club", "scout", "parent"]);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   // Subject identifier from the identity provider (Clerk user id). Never trusted from the client.
   authSubject: text("auth_subject").notNull().unique(),
   email: text("email"),
   displayName: text("display_name"),
+  persona: persona("persona"),
+  onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
   createdAt: createdAt(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
@@ -414,7 +419,43 @@ export const analysisTracks = pgTable(
   (t) => [uniqueIndex("analysis_tracks_job_track_uq").on(t.jobId, t.trackNo), index("analysis_tracks_org_idx").on(t.orgId)],
 );
 
-// Names and shirt numbers staff give to tracked players in one analysis.
+export const playerPosition = pgEnum("player_position", ["goalkeeper", "defender", "midfielder", "forward"]);
+export const preferredFoot = pgEnum("preferred_foot", ["left", "right", "both"]);
+
+// A player profile: a squad member in a club, or the user themself in a personal workspace. Stats
+// come from analyses where a tracked player was linked to the profile. Data is kept minimal
+// (birth year, not date of birth): many players are minors.
+export const players = pgTable(
+  "players",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // The account this profile belongs to ("me"), if any.
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    position: playerPosition("position"),
+    preferredFoot: preferredFoot("preferred_foot"),
+    shirtNumber: integer("shirt_number"),
+    birthYear: integer("birth_year"),
+    clubName: text("club_name"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("players_org_idx").on(t.orgId),
+    uniqueIndex("players_org_user_uq").on(t.orgId, t.userId).where(sql`${t.userId} is not null`),
+    check("players_name_length", sql`char_length(${t.name}) between 1 and 60`),
+    check("players_shirt_range", sql`${t.shirtNumber} is null or ${t.shirtNumber} between 0 and 99`),
+    check("players_birth_year_range", sql`${t.birthYear} is null or ${t.birthYear} between 1940 and 2030`),
+    check("players_club_length", sql`${t.clubName} is null or char_length(${t.clubName}) between 1 and 80`),
+  ],
+);
+
+// Names and shirt numbers staff give to tracked players in one analysis, and the player profile
+// a tracked player is linked to.
 export const playerLabels = pgTable(
   "player_labels",
   {
@@ -428,12 +469,14 @@ export const playerLabels = pgTable(
     trackNo: integer("track_no").notNull(),
     name: text("name"),
     shirtNumber: integer("shirt_number"),
+    playerId: uuid("player_id").references(() => players.id, { onDelete: "set null" }),
     updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("player_labels_job_track_uq").on(t.jobId, t.trackNo),
     index("player_labels_org_idx").on(t.orgId),
+    index("player_labels_player_idx").on(t.playerId),
     check("player_labels_shirt_range", sql`${t.shirtNumber} is null or ${t.shirtNumber} between 0 and 99`),
     check("player_labels_name_length", sql`${t.name} is null or char_length(${t.name}) between 1 and 60`),
   ],

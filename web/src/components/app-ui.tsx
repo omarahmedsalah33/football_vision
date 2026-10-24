@@ -65,6 +65,9 @@ const paths = {
     </>
   ),
   arrow: <path d="M5 12h14m0 0-5-5m5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />,
+  shirt: <path d="M8.5 3.5 4 6l1.8 4.2L8 9.4V20.5h8V9.4l2.2.8L20 6l-4.5-2.5c-.4 1.6-1.8 2.7-3.5 2.7s-3.1-1.1-3.5-2.7Z" strokeLinejoin="round" />,
+  link: <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" strokeLinecap="round" />,
+  edit: <path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4" strokeLinejoin="round" />,
   alert: (
     <>
       <path d="M12 4 2.5 20h19L12 4Z" strokeLinejoin="round" />

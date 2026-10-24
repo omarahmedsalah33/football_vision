@@ -5,7 +5,7 @@ const ALLOWED: Record<Role, Permission[]> = {
   owner: ["org.delete", "billing.manage", "members.manage", "match.delete", "video.upload", "match.read"],
   admin: ["billing.manage", "members.manage", "match.delete", "video.upload", "match.read"],
   coach: ["match.create", "video.upload", "analysis.run", "report.share"],
-  analyst: ["match.create", "video.upload", "analysis.run", "report.share"],
+  analyst: ["match.create", "video.upload", "analysis.run", "report.share", "player.manage"],
   scout: ["match.read", "report.read"],
   player: ["match.read", "report.read"],
 };
@@ -15,8 +15,8 @@ const DENIED: Record<Role, Permission[]> = {
   admin: ["org.delete"],
   coach: ["match.delete", "org.manage", "members.manage", "billing.manage", "org.delete"],
   analyst: ["match.delete", "members.manage", "billing.manage", "org.delete"],
-  scout: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "billing.manage"],
-  player: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "members.manage"],
+  scout: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "billing.manage", "player.manage"],
+  player: ["match.create", "video.upload", "analysis.run", "match.delete", "report.share", "members.manage", "player.manage"],
 };
 
 describe("permission matrix", () => {

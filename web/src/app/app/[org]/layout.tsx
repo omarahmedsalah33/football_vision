@@ -10,6 +10,7 @@ import { getDb } from "@/server/db/client";
 import { listMatches } from "@/server/matches/service";
 import { workspaceOverview } from "@/server/orgs/overview";
 import { listMyOrgs } from "@/server/orgs/service";
+import { myPlayer } from "@/server/players/service";
 
 const ROLE_LABEL: Record<string, string> = { owner: "Owner", admin: "Admin", coach: "Coach", analyst: "Analyst", scout: "Scout", player: "Player" };
 
@@ -56,7 +57,7 @@ async function WorkspaceNav({ params }: { params: LayoutProps<"/app/[org]">["par
   const { org } = await params;
   const [actor, user] = await Promise.all([pageActor(org), pageUser()]);
   const db = getDb();
-  const [workspaces, overview, matches] = await Promise.all([listMyOrgs(db, actor.userId), workspaceOverview(db, actor), listMatches(db, actor)]);
+  const [workspaces, overview, matches, me] = await Promise.all([listMyOrgs(db, actor.userId), workspaceOverview(db, actor), listMatches(db, actor), myPlayer(db, actor)]);
   const personal = overview.kind === "personal";
   const name = personal ? "Personal workspace" : actor.orgName;
   const base = `/app/${actor.orgSlug}`;
@@ -98,8 +99,16 @@ async function WorkspaceNav({ params }: { params: LayoutProps<"/app/[org]">["par
         <NavLink href={base} icon="home" exact>
           Home
         </NavLink>
+        {me && (
+          <NavLink href={`${base}/players/${me.id}`} icon="user" exact>
+            My profile
+          </NavLink>
+        )}
         <NavLink href={`${base}/matches`} icon="matches" count={matches.length}>
           Matches
+        </NavLink>
+        <NavLink href={`${base}/players`} icon="shirt" exact={personal}>
+          {personal ? "Players" : "Squad"}
         </NavLink>
         <NavLink href={`${base}/members`} icon="members">
           Members

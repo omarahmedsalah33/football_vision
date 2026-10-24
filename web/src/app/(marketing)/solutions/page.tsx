@@ -15,8 +15,13 @@ const SOLUTIONS: Solution[] = [
     title: "Academies",
     pitch:
       "Your players grow every season. Record that growth with evidence you can show players, parents and the scouts who come looking.",
-    today: ["Private workspace for your academy", "Secure upload of full matches", "Staff roles with clear permissions"],
-    planned: ["Player development tracking across matches", "Development objectives set by coaches", "Shareable progress reports"],
+    today: [
+      "Private workspace for your academy",
+      "Secure upload of full matches",
+      "Staff roles with clear permissions",
+      "Beta: a profile for every squad player, built match after match",
+    ],
+    planned: ["Development objectives set by coaches", "Shareable progress reports"],
   },
   {
     id: "clubs",
@@ -57,8 +62,14 @@ const SOLUTIONS: Solution[] = [
     id: "players",
     title: "Players & parents",
     pitch: "Simple enough to use without a technician. See your progress, match after match.",
-    today: ["Personal workspace, created when you sign up", "Free trial with one analysis per month"],
-    planned: ["Personal performance reports", "Your match history in one place"],
+    today: [
+      "Your own player profile, set up when you sign up",
+      "Beta: a score out of 100 for every match, and your form over time",
+      "Beta: top speed, sprints, distance and where you play",
+      "Strengths and weaknesses that hold across your matches",
+      "Parents: follow your child's profile from your own workspace",
+    ],
+    planned: ["Goals, assists and shots (needs ball tracking)", "Share your profile with a coach or scout"],
   },
 ];
 

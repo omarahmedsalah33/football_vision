@@ -10,6 +10,8 @@ import { getDb } from "@/server/db/client";
 import { listMatches, matchThumbnails } from "@/server/matches/service";
 import { workspaceOverview } from "@/server/orgs/overview";
 import { getStorage } from "@/server/storage/s3";
+import { PlayerAvatar, ScoreDial } from "@/components/player-ui";
+import { myPlayer, profileStats } from "@/server/players/service";
 
 export const metadata: Metadata = { title: "Home" };
 
@@ -46,7 +48,9 @@ async function Home({ params }: { params: PageProps<"/app/[org]">["params"] }) {
   const { org } = await params;
   const [actor, user] = await Promise.all([pageActor(org), pageUser()]);
   const db = getDb();
-  const [matches, overview] = await Promise.all([listMatches(db, actor), workspaceOverview(db, actor)]);
+  const [matches, overview, me] = await Promise.all([listMatches(db, actor), workspaceOverview(db, actor), myPlayer(db, actor)]);
+  const myStats = me ? (await profileStats(db, actor, [me.id])).get(me.id)! : null;
+  const myPhoto = myStats?.photoTrack ? await getStorage().presignGet(myStats.photoTrack.cropKey, "image/jpeg", 600) : null;
   const base = `/app/${actor.orgSlug}`;
   const canCreate = can(actor.role, "match.create");
   const canAct = can(actor.role, "analysis.run");
@@ -209,6 +213,7 @@ async function Home({ params }: { params: PageProps<"/app/[org]">["params"] }) {
           </div>
 
           <aside className="space-y-6">
+            {me && myStats && <MyProfileCard href={`${base}/players/${me.id}`} name={me.name} photoUrl={myPhoto} stats={myStats.stats.totals} />}
             {showChecklist && (
               <section aria-labelledby="start-heading" className="relative rounded-2xl border border-border bg-surface p-5">
                 <CornerMarks tone="pitchline" size={16} />
@@ -302,3 +307,24 @@ function MatchRow({
     </li>
   );
 }
+
+function MyProfileCard({ href, name, photoUrl, stats }: { href: string; name: string; photoUrl: string | null; stats: { matches: number; averageScore: number | null; topSpeedKmh: number } }) {
+  return (
+    <Link href={href} className="group relative block overflow-hidden rounded-2xl border border-mindaro/40 bg-surface p-5 transition-colors hover:border-mindaro">
+      <CornerMarks tone="mindaro" size={16} />
+      <p className="font-data text-xs uppercase tracking-[0.2em] text-mindaro">My profile</p>
+      <div className="mt-3 flex items-center gap-4">
+        <PlayerAvatar name={name} photoUrl={photoUrl} className="h-16 w-14" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-display text-2xl font-bold uppercase group-hover:text-mindaro">{name}</p>
+          <p className="text-xs text-muted">
+            {stats.matches} {stats.matches === 1 ? "match" : "matches"}
+            {stats.matches ? ` · top speed ${stats.topSpeedKmh} km/h` : " · link yourself in a match to start"}
+          </p>
+        </div>
+        <ScoreDial score={stats.averageScore} size={56} />
+      </div>
+    </Link>
+  );
+}
+

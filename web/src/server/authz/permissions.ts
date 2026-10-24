@@ -15,7 +15,8 @@ export type Permission =
   | "video.upload"
   | "analysis.run"
   | "report.read"
-  | "report.share";
+  | "report.share"
+  | "player.manage";
 
 /** Human-readable names, used by the public docs so they always mirror the enforced matrix. */
 export const PERMISSION_LABELS: Record<Permission, string> = {
@@ -26,6 +27,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "video.upload": "Upload video",
   "analysis.run": "Start or cancel analysis",
   "report.share": "Share reports",
+  "player.manage": "Manage player profiles",
   "match.delete": "Delete matches",
   "members.manage": "Manage members",
   "org.manage": "Workspace settings",
@@ -41,6 +43,7 @@ const ANALYST: Permission[] = [
   "video.upload",
   "analysis.run",
   "report.share",
+  "player.manage",
 ];
 
 // The single source of truth for role capabilities. Least privilege: anything not listed is denied.
