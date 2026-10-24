@@ -522,6 +522,14 @@ We'd rather you hear these from us:
 - **Identity switches** split one player into several tracks; the reliability panel reports how often.
 - **Teams are named A and B** (A defends the left goal when first seen); you can't yet mark which is yours.
 - **Processing is slow on consumer GPUs** (about 2.5 h per match on a GTX 1660 Ti).
+- **Technical and tactical areas are rated, not measured.** First touch, scanning, positioning and
+  the like are 1–5 ratings by a coach or the player until ball and event detection exist; the app
+  always labels them as opinions.
+- **The starter drills haven't been reviewed by a coaching body.** They're common exercises written up
+  by us; check them with a qualified coach for the player's age, level and fitness. Their animations
+  are diagrams, not filmed videos, and clubs' own drills don't have one yet.
+- **Players can't yet share their profile with an academy.** Independent players and club squads are
+  separate for now; consent-based linking is the next milestone.
 - Invitation emails aren't sent automatically yet; the inviter shares the link.
 
 The full list, with technical debt, is in [docs/STATUS.md](docs/STATUS.md).
@@ -534,6 +542,7 @@ The full list, with technical debt, is in [docs/STATUS.md](docs/STATUS.md).
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, decisions and alternatives, data model, threat model |
 | [docs/STATUS.md](docs/STATUS.md) | What works (with test evidence), what's missing, limitations, manual setup |
+| [docs/PLATFORM_PLAN.md](docs/PLATFORM_PLAN.md) | Player development and academy platform: assessment, data model, security boundaries, risks, milestones |
 | [docs/evaluation/](docs/evaluation/) | How accuracy is measured, and the results once available |
 | [docs/BRAND.md](docs/BRAND.md) | Colours, typography, chart palette validation |
 
