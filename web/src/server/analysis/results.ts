@@ -36,6 +36,10 @@ export const summarySchema = z.object({
     tracking: z.object({ tracks: z.number(), medianTrackSeconds: z.number(), meanCoverage: z.number(), tracksPerExpectedPerson: z.number() }),
     teams: z.object({ a: z.number(), b: z.number(), other: z.number(), separation: z.number().nullable().optional() }).passthrough(),
     teamShape: z.object({ windows: z.number(), windowsWithBothTeams: z.number() }),
+    camera: z
+      .object({ mode: z.enum(["fixed", "moving"]), followedShare: z.number().optional(), lostFrames: z.number().optional() })
+      .passthrough()
+      .default({ mode: "fixed" }),
     processingSeconds: z.number(),
   }),
   teamShape: z.array(z.object({ start: z.number(), end: z.number(), frames: z.number(), a: shape, b: shape })),

@@ -120,7 +120,7 @@ def _prepare(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: He
     max_duration = float(job.config.get("maxDurationSeconds", 0)) or 0.0
     if max_duration <= 0:
         raise JobFailure("invalid_job", "This analysis request is invalid.")
-    info, frames = validate_and_extract(path, workdir / "frames", max_duration, settings.probe_timeout_seconds)
+    info, frames, camera_motion = validate_and_extract(path, workdir / "frames", max_duration, settings.probe_timeout_seconds)
 
     _checkpoint(conn, settings, job, hb, "frames", 0.8)
     if not frames:
@@ -137,10 +137,10 @@ def _prepare(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: He
     def persist(cur) -> None:
         cur.execute(
             """update videos set status = 'validated', container = %s, video_codec = %s,
-                      duration_seconds = %s, width = %s, height = %s, fps = %s, frames = %s
+                      duration_seconds = %s, width = %s, height = %s, fps = %s, frames = %s, camera_motion = %s
                 where id = %s and org_id = %s""",
             (info.container, info.video_codec, info.duration_seconds, info.width, info.height, info.fps,
-             Jsonb(stored), job.video_id, job.org_id),
+             Jsonb(stored), camera_motion, job.video_id, job.org_id),
         )
 
     if not queue.complete(conn, job.id, settings.worker_id, model_versions(["download", "validate", "frames"]), persist_results=persist):
@@ -167,8 +167,12 @@ def _run_analysis_child(conn, settings: Settings, job: ClaimedJob, hb: Heartbeat
 
     reader = threading.Thread(target=drain_stderr, daemon=True)
     reader.start()
+    failure: tuple[str, str] | None = None
     try:
         for line in proc.stdout:
+            if line.startswith("FAILURE "):
+                _, code, message = line.rstrip("\n").split(" ", 2)
+                failure = (code, message)
             if line.startswith("PROGRESS ") and time.monotonic() - last_report > 3:
                 _, stage, fraction = line.split()
                 _checkpoint(conn, settings, job, hb, stage, float(fraction))
@@ -186,6 +190,8 @@ def _run_analysis_child(conn, settings: Settings, job: ClaimedJob, hb: Heartbeat
         raise
     finally:
         reader.join(timeout=5)
+    if code == 3 and failure is not None:
+        raise JobFailure(failure[0], failure[1])
     if code != 0:
         log.error("analysis child failed", extra={"job_id": job.id, "code": code, "stderr": stderr_tail[-5:]})
         raise JobFailure("analysis_failed", "The analysis could not be completed.", retryable=True)

@@ -89,6 +89,7 @@ Football Vision is **early-access software**. This table only lists what is buil
 | 🎞️ | **Video checks**: format, duration and resolution probed in an isolated, time-limited process | ✅ Live |
 | 📐 | **Pitch calibration**: click landmarks, live pitch-line overlay, leave-one-out error in metres | ✅ Live |
 | 🤖 | **Detection and tracking**: RF-DETR + ByteTrack on GPU, foot points projected to pitch metres | ✅ Built, tested on synthetic truth |
+| 🎥 | **Moving cameras**: auto-tracking cameras followed from one calibrated frame, every placement checked against the pitch lines | 🟡 Beta, tested on synthetic pan/zoom footage |
 | 👕 | **Team separation**: shirt-colour clustering, referees and goalkeepers kept apart | ✅ Built, tested on synthetic truth |
 | 📊 | **Results**: team width, depth and line height over time, average positions, heatmaps, per-track distance | ✅ Built, tested on synthetic truth |
 | 🧾 | **Plans and usage**: quotas reserved atomically and enforced server-side | ✅ Live |
@@ -453,8 +454,10 @@ football_vision/
 We'd rather you hear these from us:
 
 - **Real-footage accuracy is unmeasured.** It will be published before it is claimed.
-- **One fixed, wide camera only.** Panning broadcast footage isn't supported; lens distortion isn't
-  modelled and shows up as calibration error.
+- **Moving cameras are in beta.** A camera that turns and zooms from one spot (auto-tracking cameras)
+  is followed from one calibrated frame and checked against the pitch lines; it's verified on
+  synthetic footage, not yet on real auto-tracking recordings. Handheld footage isn't supported, and
+  a TV broadcast is only analysed for the shot you calibrate.
 - **Identity switches** split one player into several tracks; the reliability panel reports how often.
 - **Teams are named A and B** (A defends the left goal when first seen); you can't yet mark which is yours.
 - **Processing is slow on consumer GPUs** (about 2.5 h per match on a GTX 1660 Ti).

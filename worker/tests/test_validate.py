@@ -12,7 +12,7 @@ GOOD = {
     "width": 1920,
     "height": 1080,
     "fps": 25.0,
-    "decoded_samples": 3,
+    "decoded_samples": 8,
 }
 
 

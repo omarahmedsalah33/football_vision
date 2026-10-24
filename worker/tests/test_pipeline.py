@@ -56,8 +56,9 @@ def test_prepare_validates_extracts_frames_and_costs_nothing(conn, settings, tmp
     assert row["model_versions"]["stages"] == ["download", "validate", "frames"]
     v = video_row(conn, job["video_id"])
     assert v["status"] == "validated" and (v["width"], v["height"]) == (640, 368)
-    # Three reference frames, stored next to the video and recorded with their timestamps.
-    assert len(v["frames"]) == 3
+    # Eight reference frames, stored next to the video and recorded with their timestamps.
+    assert len(v["frames"]) == 8
+    assert v["camera_motion"] in ("fixed", "moving", "unknown"), "the camera type is recorded"
     for f in v["frames"]:
         assert f["key"].startswith(v["storage_key"].rsplit("/", 1)[0] + "/frames/")
         assert storage.uploaded[f["key"]][:3] == bytes([0xFF, 0xD8, 0xFF]), "a JPEG image"

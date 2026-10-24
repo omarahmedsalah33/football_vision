@@ -158,33 +158,22 @@ export function leaveOneOutError(points: Correspondence[]): number | null {
 }
 
 /**
- * Rejects fits that can't come from a real camera: every point of the pitch must be in front of
- * the camera, so the projective scale w of the image→pitch inverse must have one sign over the whole
- * pitch rectangle. A misplaced click with only 4–5 points can otherwise fold the pitch through the
- * horizon and still fit "exactly".
+ * Rejects fits that can't come from a real camera, judged where the user clicked (the part of the
+ * pitch that is in view; a zoomed camera may have half the pitch behind it, which is fine):
+ * - every clicked point must be on the ground in front of the camera, not folded through the
+ *   horizon: the projective scale w of image → pitch has one sign over all of them;
+ * - the pitch must not be a mirror image: left stays left of right as seen from the camera, and far
+ *   stays above near. The Jacobian of image → pitch at a point has determinant det(H) / w³, so with
+ *   one sign of w the orientation is the sign of det(H) · w.
  */
-export function assertPlausible(H: Mat3, size: { length: number; width: number }) {
-  const inv = invert(H); // pitch → image
-  const corners: Vec2[] = [
-    [0, 0],
-    [size.length, 0],
-    [size.length, size.width],
-    [0, size.width],
-  ];
-  const ws = corners.map(([x, y]) => inv[6] * x + inv[7] * y + inv[8]);
-  if (!(ws.every((w) => w > 1e-9) || ws.every((w) => w < -1e-9))) {
+export function assertPlausible(H: Mat3, imagePoints: Vec2[]) {
+  const ws = imagePoints.map(([x, y]) => H[6] * x + H[7] * y + H[8]);
+  if (!(ws.every((w) => w > 1e-12) || ws.every((w) => w < -1e-12))) {
     throw new CalibrationError("These points would put part of the pitch behind the camera, so at least one is in the wrong place.");
   }
-  // The pitch must also keep its orientation (no mirror image): left stays left of right as seen
-  // from the camera, and the far touchline stays above the near one.
-  const img = corners.map((c) => apply(inv, c));
-  let signed = 0;
-  for (let i = 0; i < 4; i++) {
-    const [x1, y1] = img[i];
-    const [x2, y2] = img[(i + 1) % 4];
-    signed += x1 * y2 - x2 * y1;
-  }
-  if (signed <= 0) {
+  const [a, b, c, d, e, f, g, h, i] = H;
+  const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+  if (det * ws[0] <= 0) {
     throw new CalibrationError("The points describe a mirrored pitch: check that left and right, and near and far, aren't swapped.");
   }
 }

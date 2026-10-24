@@ -54,8 +54,19 @@ export async function AnalysisResults({ orgSlug, matchId, jobId }: { orgSlug: st
 
       <Card className="p-6" corners="pitchline">
         <h3 className="text-lg font-semibold">How reliable is this?</h3>
-        <dl className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Calibration error" value={calError != null ? `${calError.toFixed(2)} m` : "n/a"} note={calError != null && calError <= 1 ? "Good: positions are measured" : "Positions are estimates"} />
+        <dl className={`mt-4 grid gap-6 sm:grid-cols-2 ${q.camera.mode === "moving" ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+          {q.camera.mode === "moving" && (
+            <Stat
+              label="Camera followed"
+              value={`${Math.round((q.camera.followedShare ?? 0) * 100)}%`}
+              note="of the video; replays, close-ups and moments the pitch lines couldn't confirm are left out"
+            />
+          )}
+          <Stat
+            label="Calibration error"
+            value={calError != null ? `${calError.toFixed(2)} m` : "n/a"}
+            note={q.camera.mode === "moving" ? "On the calibrated frame; positions are estimates" : calError != null && calError <= 1 ? "Good: positions are measured" : "Positions are estimates"}
+          />
           <Stat label="People detected per frame" value={q.detection.meanPeoplePerFrame.toFixed(1)} note={`${Math.round(q.detection.shareFramesUnderMinPeople * 100)}% of frames saw fewer than ${q.detection.minPeople}`} />
           <Stat
             label="Tracks per expected person"

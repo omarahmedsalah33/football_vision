@@ -19,6 +19,8 @@ export const calibrationInput = z.object({
   pitchLength: z.number().min(20).max(120),
   pitchWidth: z.number().min(12).max(90),
   playersPerSide: z.union(PLAYERS_PER_SIDE.map((n) => z.literal(n))).default(11),
+  // The reference frame the points were clicked on (seconds into the video).
+  frameTimeSeconds: z.number().min(0).max(86_400).optional(),
   points: z
     .array(z.object({ landmark: z.string().max(40), x: z.number().finite(), y: z.number().finite() }))
     .min(MIN_CALIBRATION_POINTS, `Mark at least ${MIN_CALIBRATION_POINTS} points so the calibration can check itself.`)
@@ -57,15 +59,18 @@ export async function calibrationContext(db: DbOrTx, storage: ObjectStorage, act
     .where(and(eq(calibrations.orgId, actor.orgId), eq(calibrations.videoId, video.id)))
     .orderBy(desc(calibrations.createdAt))
     .limit(1);
+  const moving = video.cameraMotion === "moving";
   return {
     videoStatus: video.status,
+    cameraMotion: (video.cameraMotion ?? null) as "fixed" | "moving" | "unknown" | null,
     width: video.width,
     height: video.height,
     frames: await Promise.all(
       frames.map(async (f) => ({ timeSeconds: f.timeSeconds, width: f.width, height: f.height, url: await storage.presignGet(f.key, "image/jpeg", 600) })),
     ),
     latest: latest ? toSaved(latest) : null,
-    reusable: video.width && video.height ? await reusableCalibrations(db, actor, matchId, video.width, video.height) : [],
+    // A moving camera's view changes from match to match, so earlier clicks don't apply.
+    reusable: !moving && video.width && video.height ? await reusableCalibrations(db, actor, matchId, video.width, video.height) : [],
   };
 }
 
@@ -76,6 +81,7 @@ function toSaved(row: typeof calibrations.$inferSelect) {
     pitchLength: pitch.length,
     pitchWidth: pitch.width,
     playersPerSide: pitch.playersPerSide,
+    frameTimeSeconds: row.frameTimeSeconds,
     rmsErrorM: row.rmsErrorM,
     looErrorM: row.looErrorM,
     createdAt: row.createdAt,
@@ -128,6 +134,12 @@ export async function saveCalibration(db: DbOrTx, actor: Actor, matchId: string,
     throw conflict("The video must finish its checks before it can be calibrated.");
   }
 
+  const frames = (video.frames as FrameRef[]) ?? [];
+  const frame = input.frameTimeSeconds === undefined ? undefined : frames.find((f) => Math.abs(f.timeSeconds - input.frameTimeSeconds!) < 0.05);
+  if (input.frameTimeSeconds !== undefined && !frame) throw invalidInput("The points must be marked on one of the frames shown.");
+  if (video.cameraMotion === "moving" && !frame) {
+    throw invalidInput("This video was filmed with a moving camera: mark all points on one frame.");
+  }
   const pitch = { length: input.pitchLength, width: input.pitchWidth };
   if (input.pitchWidth > input.pitchLength) throw invalidInput("The pitch length (goal to goal) must be longer than its width.");
   const allowed = new Set(landmarksFor(pitch, input.playersPerSide).map((l) => l.id));
@@ -147,7 +159,7 @@ export async function saveCalibration(db: DbOrTx, actor: Actor, matchId: string,
   let H;
   try {
     H = fitHomography(points);
-    assertPlausible(H, pitch);
+    assertPlausible(H, points.map((p) => p.image));
   } catch (err) {
     if (err instanceof CalibrationError) throw invalidInput(err.message);
     throw err;
@@ -178,6 +190,7 @@ export async function saveCalibration(db: DbOrTx, actor: Actor, matchId: string,
       imageHeight: video.height,
       rmsErrorM: rms,
       looErrorM: loo,
+      frameTimeSeconds: frame?.timeSeconds ?? null,
       createdBy: actor.userId,
     })
     .returning();

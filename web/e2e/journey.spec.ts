@@ -150,6 +150,8 @@ test("coach signs in, uploads footage, calibrates the pitch and gets an analysis
   await expect(page.getByText("4 placed")).toBeVisible();
   for (const id of ["halfway_near", "left_corner_near"]) await clickOnFrame(page, id);
   await expect(page.getByRole("heading", { name: /^Great: accurate to about 0\.\d m$/ })).toBeVisible();
+  // The page never scrolls sideways (it did once, when the frame strip was wider than the column).
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: `${SHOTS}/08-calibration.png`, fullPage: true });
   await page.getByRole("button", { name: "Yes, save calibration" }).click();
 

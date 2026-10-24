@@ -84,6 +84,12 @@ export async function createMatch(db: DbOrTx, actor: Actor, input: z.infer<typeo
   return match;
 }
 
+/** A moving camera is followed from the one frame the points were clicked on; older calibrations
+ * didn't record it, so they must be redone. */
+export function usableCalibration(cameraMotion: string | null | undefined, frameTimeSeconds: number | null | undefined) {
+  return cameraMotion !== "moving" || frameTimeSeconds != null;
+}
+
 export async function listMatches(db: DbOrTx, actor: Actor) {
   assertCan(actor, "match.read");
   const rows = await db
@@ -97,7 +103,7 @@ export async function listMatches(db: DbOrTx, actor: Actor) {
   const ids = rows.map((m) => m.id);
   const [vids, jobs, cals] = await Promise.all([
     db
-      .select({ matchId: videos.matchId, status: videos.status, createdAt: videos.createdAt })
+      .select({ matchId: videos.matchId, status: videos.status, createdAt: videos.createdAt, cameraMotion: videos.cameraMotion })
       .from(videos)
       .where(and(eq(videos.orgId, actor.orgId), inArray(videos.matchId, ids)))
       .orderBy(desc(videos.createdAt)),
@@ -107,7 +113,7 @@ export async function listMatches(db: DbOrTx, actor: Actor) {
       .where(and(eq(analysisJobs.orgId, actor.orgId), inArray(analysisJobs.matchId, ids)))
       .orderBy(desc(analysisJobs.createdAt)),
     db
-      .select({ matchId: calibrations.matchId })
+      .select({ matchId: calibrations.matchId, frameTimeSeconds: calibrations.frameTimeSeconds })
       .from(calibrations)
       .where(and(eq(calibrations.orgId, actor.orgId), inArray(calibrations.matchId, ids))),
   ]);
@@ -124,7 +130,7 @@ export async function listMatches(db: DbOrTx, actor: Actor) {
       latest(vids, m.id),
       latest(jobs, m.id, (j) => j.kind === "prepare"),
       latest(jobs, m.id, (j) => j.kind === "analyze"),
-      cals.some((c) => c.matchId === m.id),
+      cals.some((c) => c.matchId === m.id && usableCalibration(latest(vids, m.id)?.cameraMotion, c.frameTimeSeconds)),
     ),
   }));
 }
@@ -210,7 +216,7 @@ export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {
     playedOn: match.playedOn,
     cameraType: match.cameraType,
     createdAt: match.createdAt,
-    status: deriveMatchStatus(video, prepare, analyze, !!calibration),
+    status: deriveMatchStatus(video, prepare, analyze, !!calibration && usableCalibration(video?.cameraMotion, calibration.frameTimeSeconds)),
     // Explicit allow-list of fields: storage keys and upload ids never leave the server.
     video: video
       ? {
@@ -224,6 +230,7 @@ export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {
           fps: video.fps,
           rejectionReason: video.rejectionReason,
           frameCount: Array.isArray(video.frames) ? video.frames.length : 0,
+          cameraMotion: video.cameraMotion as "fixed" | "moving" | "unknown" | null,
           deleteAfter: video.deleteAfter,
         }
       : null,
@@ -236,6 +243,7 @@ export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {
           rmsErrorM: calibration.rmsErrorM,
           looErrorM: calibration.looErrorM,
           createdAt: calibration.createdAt,
+          usable: usableCalibration(video?.cameraMotion, calibration.frameTimeSeconds),
         }
       : null,
   };

@@ -21,7 +21,9 @@ MIN_DURATION_S = 10.0
 MIN_WIDTH, MIN_HEIGHT = 640, 360  # below this, distant players cover only a few pixels
 MAX_WIDTH, MAX_HEIGHT = 7680, 4320  # 8K: fixed panoramic rigs exceed 4K; frames are downscaled for processing
 MIN_FPS, MAX_FPS = 10.0, 120.0
-SAMPLE_POINTS = (0.1, 0.5, 0.85)  # decode a frame near the start, middle and end
+# Frames spread across the video: decoding them proves the file is readable throughout, and they
+# are offered for pitch calibration (with a moving camera, users pick the one showing most pitch).
+SAMPLE_POINTS = (0.06, 0.18, 0.3, 0.42, 0.54, 0.66, 0.78, 0.9)
 REFERENCE_FRAME_MAX_WIDTH = 1920  # reference frames for calibration are stored at most this wide
 MEMORY_LIMIT_BYTES = 2 * 1024**3
 
@@ -60,6 +62,7 @@ def probe_file(path: str, frames_dir: str | None = None) -> dict:
 
             decoded = 0
             frames: list[dict] = []
+            pixels = []
             for i, point in enumerate(SAMPLE_POINTS):
                 if point > 0 and duration > 0 and stream.time_base:
                     container.seek(int(duration * point / stream.time_base), stream=stream, backward=True)
@@ -68,6 +71,7 @@ def probe_file(path: str, frames_dir: str | None = None) -> dict:
                         decoded += 1
                         if frames_dir:
                             frames.append(_save_reference_frame(frame, Path(frames_dir) / f"frame_{i}.jpg"))
+                            pixels.append(frame.to_ndarray(format="rgb24"))
                     break
             return {
                 "container": fmt,
@@ -78,11 +82,24 @@ def probe_file(path: str, frames_dir: str | None = None) -> dict:
                 "fps": fps,
                 "decoded_samples": decoded,
                 "frames": frames,
+                "camera_motion": _camera_motion(pixels) if frames_dir else None,
             }
     except av.error.InvalidDataError:
         return {"error": "undecodable"}
     except av.error.FFmpegError:
         return {"error": "undecodable"}
+
+
+def _camera_motion(pixels: list) -> str:
+    """'fixed', 'moving' or 'unknown' (also when the computer-vision extra isn't installed)."""
+    try:
+        from ..analysis.camera import classify_motion
+    except ImportError:
+        return "unknown"
+    try:
+        return classify_motion(pixels)
+    except Exception:  # noqa: BLE001 - a classification problem must never fail the upload check
+        return "unknown"
 
 
 def _save_reference_frame(frame, dest: Path) -> dict:
@@ -168,11 +185,12 @@ def validate(path: Path, max_duration_seconds: float, timeout_seconds: int) -> V
     return check(run_probe(path, timeout_seconds), max_duration_seconds)
 
 
-def validate_and_extract(path: Path, frames_dir: Path, max_duration_seconds: float, timeout_seconds: int) -> tuple[VideoInfo, list[dict]]:
-    """Validates the video and returns the reference frames written to `frames_dir`."""
+def validate_and_extract(path: Path, frames_dir: Path, max_duration_seconds: float, timeout_seconds: int) -> tuple[VideoInfo, list[dict], str]:
+    """Validates the video; returns the reference frames written to `frames_dir` and the camera motion."""
     facts = run_probe(path, timeout_seconds, frames_dir)
     info = check(facts, max_duration_seconds)
-    return info, facts.get("frames", [])
+    motion = facts.get("camera_motion")
+    return info, facts.get("frames", []), motion if motion in ("fixed", "moving", "unknown") else "unknown"
 
 
 if __name__ == "__main__":  # child-process entry point

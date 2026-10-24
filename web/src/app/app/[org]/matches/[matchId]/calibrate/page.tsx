@@ -74,6 +74,7 @@ async function Content({ params }: { params: PageProps<"/app/[org]/matches/[matc
         frames={ctx.frames}
         initial={ctx.latest}
         reusable={ctx.reusable}
+        cameraMotion={ctx.cameraMotion}
       />
     </>
   );

@@ -141,6 +141,8 @@ export const videos = pgTable(
     rejectionReason: text("rejection_reason"),
     // Reference frames extracted by the prepare job: [{ key, timeSeconds, width, height }].
     frames: jsonb("frames").notNull().default([]),
+    // Set by the prepare job: "fixed", "moving" (pans/zooms: auto-tracking or broadcast) or "unknown".
+    cameraMotion: text("camera_motion"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     uploadedAt: timestamp("uploaded_at", { withTimezone: true }),
@@ -150,6 +152,7 @@ export const videos = pgTable(
     index("videos_org_match_idx").on(t.orgId, t.matchId),
     check("videos_declared_size_positive", sql`${t.declaredSizeBytes} > 0`),
     check("videos_part_count_range", sql`${t.partCount} between 1 and 10000`),
+    check("videos_camera_motion_values", sql`${t.cameraMotion} is null or ${t.cameraMotion} in ('fixed', 'moving', 'unknown')`),
   ],
 );
 
@@ -346,6 +349,9 @@ export const calibrations = pgTable(
     rmsErrorM: real("rms_error_m").notNull(),
     // Leave-one-out error: how far each landmark lands when it is not used to fit. Null below 5 points.
     looErrorM: real("loo_error_m"),
+    // The reference frame the points were clicked on. A moving camera needs all points on one frame,
+    // and the worker starts following the camera from it.
+    frameTimeSeconds: real("frame_time_seconds"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },

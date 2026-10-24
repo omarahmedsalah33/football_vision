@@ -32,7 +32,9 @@ type Saved = {
   pitchLength: number;
   pitchWidth: number;
   playersPerSide: number;
+  frameTimeSeconds?: number | null;
 };
+type CameraMotion = "fixed" | "moving" | "unknown" | null;
 type Reusable = Saved & { id: string; matchTitle: string; playedOn: string | null; createdAt: Date | string };
 
 type Fit =
@@ -56,11 +58,11 @@ function mmss(s: number) {
 }
 
 /** Fit plus a per-point check: each point predicted from a fit made without it. */
-function computeFit(cs: Correspondence[], size: PitchSize): Fit | null {
+function computeFit(cs: Correspondence[]): Fit | null {
   if (cs.length < 4) return null;
   try {
     const H = fitHomography(cs);
-    assertPlausible(H, size);
+    assertPlausible(H, cs.map((c) => c.image));
     const looEach =
       cs.length >= MIN_POINTS
         ? cs.map((c, i) => {
@@ -162,6 +164,7 @@ export function Calibrator({
   frames,
   initial,
   reusable,
+  cameraMotion,
 }: {
   orgId: string;
   matchId: string;
@@ -172,6 +175,7 @@ export function Calibrator({
   frames: Frame[];
   initial: Saved | null;
   reusable: Reusable[];
+  cameraMotion: CameraMotion;
 }) {
   const router = useRouter();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -184,7 +188,11 @@ export function Calibrator({
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const [chosen, setChosen] = useState<string | null>(null);
   const [lastPlaced, setLastPlaced] = useState<string | null>(null);
-  const [frameIdx, setFrameIdx] = useState(0);
+  const moving = cameraMotion === "moving";
+  const initialFrame = Math.max(0, frames.findIndex((f) => initial?.frameTimeSeconds != null && Math.abs(f.timeSeconds - initial.frameTimeSeconds) < 0.05));
+  const [frameIdx, setFrameIdx] = useState(initialFrame);
+  // The frame the points are clicked on. With a moving camera every point must be on this frame.
+  const [anchorIdx, setAnchorIdx] = useState<number | null>(initial?.points.length ? initialFrame : null);
   const [zoom, setZoom] = useState(1);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -202,7 +210,7 @@ export function Calibrator({
     () => placedIds.map((landmark) => ({ landmark, image: points[landmark], pitch: LANDMARK_BY_ID.get(landmark)!.at(size) })),
     [placedIds, points, size],
   );
-  const fit = useMemo(() => computeFit(correspondences, size), [correspondences, size]);
+  const fit = useMemo(() => computeFit(correspondences), [correspondences]);
   const enough = correspondences.length >= MIN_POINTS;
   const quality = fit?.ok && enough ? fit.loo : null;
   const worst =
@@ -219,8 +227,23 @@ export function Calibrator({
     setSize(f.size);
   }
 
+  function selectFrame(i: number) {
+    if (i === frameIdx) return;
+    if (moving && placedIds.length > 0) {
+      // A moving camera shows a different view in each frame, so points can't be mixed.
+      setPoints({});
+      setSkipped(new Set());
+      setChosen(null);
+      setLastPlaced(null);
+      setAnchorIdx(null);
+      setNotice("Points belong to one frame with a moving camera, so switching frames starts over.");
+    }
+    setFrameIdx(i);
+  }
+
   function place(at: Vec2) {
     if (!canEdit || !current) return;
+    if (placedIds.length === 0 || anchorIdx === null) setAnchorIdx(frameIdx);
     const clamped: Vec2 = [Math.min(width, Math.max(0, at[0])), Math.min(height, Math.max(0, at[1]))];
     setPoints((p) => ({ ...p, [current]: clamped }));
     setSkipped((s) => {
@@ -289,6 +312,7 @@ export function Calibrator({
         pitchLength: size.length,
         pitchWidth: size.width,
         playersPerSide,
+        frameTimeSeconds: frames[anchorIdx ?? frameIdx].timeSeconds,
         points: correspondences.map((c) => ({ landmark: c.landmark, x: c.image[0], y: c.image[1] })),
       });
       router.push(backHref);
@@ -303,6 +327,7 @@ export function Calibrator({
     return (
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
         <Card className="p-6">
+          {moving && <MovingNote />}
           <h2 className="text-lg font-semibold">1 · What kind of pitch is it?</h2>
           <div role="radiogroup" aria-label="Pitch type" className="mt-4 grid gap-3 sm:grid-cols-2">
             {PITCH_FORMATS.map((f) => (
@@ -392,16 +417,27 @@ export function Calibrator({
               : { tone: "danger" as const, title: "The points don't agree", text: `${hint(bad!)[0].toUpperCase()}${hint(bad!).slice(1)} is probably in the wrong place. Select it (red) on the drawing and click its real spot again.` };
 
   return (
-    <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]">
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted">Frame:</span>
-          {frames.map((f, i) => (
-            <Button key={f.url} variant={i === frameIdx ? "primary" : "secondary"} onClick={() => setFrameIdx(i)} aria-pressed={i === frameIdx}>
-              <span className="font-data">{mmss(f.timeSeconds)}</span>
-            </Button>
-          ))}
-          <span className="ml-auto" />
+    <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="min-w-0 space-y-3">
+        {moving && <MovingNote />}
+        <div className="flex items-end gap-3">
+          <div role="group" aria-label="Choose a frame" className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
+            {frames.map((f, i) => (
+              <button
+                key={f.url}
+                type="button"
+                onClick={() => selectFrame(i)}
+                aria-pressed={i === frameIdx}
+                aria-label={`Frame at ${mmss(f.timeSeconds)}${i === anchorIdx && placedIds.length ? " (your points are on this frame)" : ""}`}
+                className={`relative w-24 shrink-0 overflow-hidden rounded-lg border-2 transition-colors ${i === frameIdx ? "border-mindaro" : "border-transparent opacity-70 hover:opacity-100"}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL from private storage */}
+                <img src={f.url} alt="" className="block aspect-video w-full object-cover" draggable={false} />
+                <span className="font-data absolute bottom-0 right-0 rounded-tl bg-bg/85 px-1 text-[10px]">{mmss(f.timeSeconds)}</span>
+                {i === anchorIdx && placedIds.length > 0 && <span aria-hidden="true" className="absolute left-1 top-1 h-2 w-2 rounded-full bg-mindaro" />}
+              </button>
+            ))}
+          </div>
           <Button variant="secondary" onClick={() => setZoom((z) => (z === 1 ? 2 : 1))} aria-pressed={zoom === 2}>
             Zoom {zoom === 1 ? "2×" : "1×"}
           </Button>
@@ -421,6 +457,7 @@ export function Calibrator({
               aria-label={`Video frame. Click ${current ? hint(current) : "a point"}. Arrow keys nudge the last point, Shift for 10 pixels.`}
             >
               {fit?.ok &&
+                (!moving || anchorIdx === null || anchorIdx === frameIdx) &&
                 pitchSegments(size, boxes).map(([a, b], i) => {
                   const p = apply(fit.inverse, a);
                   const q = apply(fit.inverse, b);
@@ -439,8 +476,9 @@ export function Calibrator({
           </div>
         </div>
         <p className="text-xs text-muted">
-          If players or the camera angle hide the lines, try another frame. Once 4 points are placed, green pitch lines are drawn over the
-          video so you can check them.
+          {moving
+            ? "Pick the frame that shows the most pitch lines, then mark all points on it. Once 4 points are placed, green pitch lines are drawn over the video so you can check them."
+            : "If players or the camera angle hide the lines, try another frame. Once 4 points are placed, green pitch lines are drawn over the video so you can check them."}
         </p>
       </div>
 
@@ -534,5 +572,14 @@ export function Calibrator({
         {!canEdit && <p className="text-sm text-muted">Your role can view but not change the calibration.</p>}
       </aside>
     </div>
+  );
+}
+
+function MovingNote() {
+  return (
+    <p className="mb-4 rounded-lg border border-gold/40 bg-gold/10 p-3 text-sm">
+      <strong className="text-gold">Moving camera.</strong> This video follows the play, so the view changes. Pick one frame that
+      shows plenty of pitch lines and mark all the points on it. We follow the camera from there, and skip replays and close-ups.
+    </p>
   );
 }

@@ -9,7 +9,7 @@ export type JobRow = typeof analysisJobs.$inferSelect;
 export type JobKind = JobRow["kind"];
 
 // Bumped whenever a worker pipeline changes in a way that affects results.
-export const PIPELINE_VERSION = { prepare: "v0.2-prepare", analyze: "v0.1-analyze" } as const;
+export const PIPELINE_VERSION = { prepare: "v0.3-prepare", analyze: "v0.2-analyze" } as const;
 
 const ACTIVE = ["queued", "running"] as const;
 
@@ -109,6 +109,9 @@ export async function enqueueAnalysis(db: DbOrTx, actor: Actor, matchId: string,
         .orderBy(desc(calibrations.createdAt))
         .limit(1);
       if (!calibration) throw conflict("Calibrate the pitch before starting analysis.");
+      if (video.cameraMotion === "moving" && calibration.frameTimeSeconds == null) {
+        throw conflict("This video was filmed with a moving camera. Calibrate the pitch again, marking all points on one frame.");
+      }
 
       const existing = await findActiveJob(tx, actor.orgId, video.id, "analyze");
       if (existing) return existing;
@@ -134,8 +137,11 @@ export async function enqueueAnalysis(db: DbOrTx, actor: Actor, matchId: string,
             pipelineVersion: PIPELINE_VERSION.analyze,
             maxDurationSeconds: ent.limits.maxVideoDurationSeconds,
             cameraType: "fixed_wide",
+            // "fixed" | "moving" | "unknown" | null (checked before this was recorded): the worker decides.
+            cameraMotion: video.cameraMotion,
             calibration: {
               id: calibration.id,
+              frameTimeSeconds: calibration.frameTimeSeconds,
               homography: calibration.homography,
               imageWidth: calibration.imageWidth,
               imageHeight: calibration.imageHeight,

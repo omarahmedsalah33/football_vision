@@ -57,6 +57,13 @@
       "when": 1792778012893,
       "tag": "0007_internal_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792804807296,
+      "tag": "0008_camera_motion",
+      "breakpoints": true
     }
   ]
 }

@@ -184,7 +184,7 @@ export default function Home() {
         {/* How it works */}
         <section id="how" className="mx-auto max-w-7xl scroll-mt-24 px-4 py-20 sm:px-6">
           <SectionHeading eyebrow="From footage to evidence" title={<>How it <span className="text-mindaro">works</span></>}>
-            No technician, no special equipment beyond a camera that sees the whole pitch.
+            No technician, no special equipment: a fixed camera that sees the pitch, or an auto-tracking camera that follows play (beta).
           </SectionHeading>
           <ol className="relative mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <span aria-hidden="true" className="absolute left-0 right-0 top-[38px] hidden border-t border-dashed border-border-strong xl:block" />

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 const LIMITS: [string, string][] = [
   ["Players hidden behind each other", "When players overlap, one may be missed or two may swap identities. Tracking quality indicators show where this happened."],
   ["Distance from the camera", "Players far from the camera cover few pixels, so they are detected less reliably. Higher, closer camera positions help."],
-  ["Camera movement", "Positions in metres rely on a calibration for a still camera. If the camera moves or zooms, those positions become unreliable until it is recalibrated."],
+  ["Camera movement", "A camera that turns and zooms from one spot is followed from the frame you calibrate, and every placement is checked against the pitch lines; moments that can't be confirmed (cuts, replays, close-ups, few lines in view) are left out and counted. Positions from moving cameras are always labelled estimated. A camera carried around can't be followed."],
   ["Light and weather", "Strong shadows, backlight, rain and poor floodlights reduce accuracy."],
   ["Low resolution", "Below 1080p, small details like the ball and shirt colours are harder to see."],
   ["Similar kits", "Teams are told apart by kit colour. Similar colours, or a goalkeeper or referee in a team's colours, can cause mix-ups."],
@@ -45,7 +45,7 @@ export default function AiLimitationsPage() {
           <li>We don&apos;t identify players by face or appearance. Your staff link tracked players to names.</li>
           <li>We don&apos;t detect passes, shots, tackles or xG yet. We won&apos;t until those models are validated.</li>
           <li>We don&apos;t analyse live: only recordings, after the match.</li>
-          <li>We don&apos;t support broadcast TV or handheld footage yet; only fixed, wide-angle cameras.</li>
+          <li>Handheld footage isn&apos;t supported. TV broadcasts only work for the shot you calibrate.</li>
           <li>We don&apos;t judge a player&apos;s potential, character, health or future. Nobody should, from video alone.</li>
         </ul>
 

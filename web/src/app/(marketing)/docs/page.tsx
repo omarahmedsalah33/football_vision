@@ -42,8 +42,10 @@ export default function DocsPage() {
             1. Film a match
           </h2>
           <p>
-            Analysis is built for a <strong>fixed, wide-angle camera</strong>. The better the footage, the more
-            metrics can be measured instead of estimated.
+            Analysis works best with a <strong>fixed, wide-angle camera</strong>. Cameras that turn and zoom from one
+            spot to follow play (auto-tracking cameras such as XbotGo or Veo) are supported in beta: positions from
+            them are labelled estimated. The better the footage, the more metrics can be measured instead of
+            estimated.
           </p>
           <ul>
             <li>
@@ -56,8 +58,9 @@ export default function DocsPage() {
               corners and penalty spots) for calibration. Small-sided pitches (5- to 9-a-side) work too.
             </li>
             <li>
-              <strong>Keep it still:</strong> no zooming, panning or moving the camera during a half. If the camera
-              moves, calibrate again.
+              <strong>Keep it still, or keep it in one spot:</strong> a fixed camera gives measured positions. An
+              auto-tracking camera may turn and zoom, but must not be carried around: it has to stay on its tripod for
+              the whole half.
             </li>
             <li>
               <strong>Quality:</strong> 1080p or higher, 25 fps or more. The minimum accepted is 640×360 at 10 fps.

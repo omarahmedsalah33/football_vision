@@ -22,6 +22,15 @@ const REJECTION: Record<string, string> = {
   unrecognized_container: "The file is not a supported video format.",
 };
 
+const CAMERA = {
+  fixed: { short: "Fixed camera", help: "" },
+  moving: {
+    short: "Moving camera",
+    help: "This video was filmed with a moving camera (it follows the play). Calibrate one frame that shows plenty of pitch lines; we follow the camera from there and skip replays and close-ups.",
+  },
+  unknown: { short: "Camera type not detected", help: "" },
+} as const;
+
 const STAGE_LABEL: Record<string, string> = {
   download: "Fetching video",
   validate: "Checking video",
@@ -94,7 +103,7 @@ async function MatchDetailView({ params }: { params: PageProps<"/app/[org]/match
       <PageHeader
         crumbs={[{ label: "Home", href: `/app/${actor.orgSlug}` }, { label: "Matches", href: `/app/${actor.orgSlug}/matches` }, { label: match.title }]}
         title={match.title}
-        description={[match.opponentName && `vs ${match.opponentName}`, match.playedOn, "Fixed wide camera"].filter(Boolean).join(" · ")}
+        description={[match.opponentName && `vs ${match.opponentName}`, match.playedOn, video?.cameraMotion ? CAMERA[video.cameraMotion].short : null].filter(Boolean).join(" · ")}
         actions={<MatchStatusBadge status={match.status} />}
       />
       <section aria-label="Progress" className="rounded-xl border border-border bg-surface/70 px-4 py-4 sm:px-8">
@@ -119,6 +128,12 @@ async function MatchDetailView({ params }: { params: PageProps<"/app/[org]/match
                   <dd className="font-data">
                     {video.width}×{video.height} @ {video.fps?.toFixed(1)} fps
                   </dd>
+                  {video.cameraMotion && (
+                    <>
+                      <dt className="text-muted">Camera</dt>
+                      <dd>{CAMERA[video.cameraMotion].short}</dd>
+                    </>
+                  )}
                 </>
               )}
               {video.deleteAfter && (
@@ -128,6 +143,9 @@ async function MatchDetailView({ params }: { params: PageProps<"/app/[org]/match
                 </>
               )}
             </dl>
+          )}
+          {video?.cameraMotion === "moving" && video.status === "validated" && (
+            <p className="mt-4 rounded-lg border border-gold/40 bg-gold/10 p-3 text-sm">{CAMERA.moving.help}</p>
           )}
           {active(prepareJob) && prepareJob && (
             <div className="mt-4">
@@ -153,7 +171,14 @@ async function MatchDetailView({ params }: { params: PageProps<"/app/[org]/match
 
         <Card className="p-6">
           <h2 className="text-lg font-semibold">2 · Pitch calibration</h2>
-          {calibration ? (
+          {calibration && !calibration.usable ? (
+            <div className="mt-4 space-y-3 text-sm">
+              <p className="text-gold">
+                This calibration was made before moving cameras were supported. Calibrate again, marking all points on one frame.
+              </p>
+              {can(actor.role, "match.update") && <ButtonLink href={`${base}/calibrate`}>Calibrate again</ButtonLink>}
+            </div>
+          ) : calibration ? (
             <div className="mt-4 space-y-3 text-sm">
               <p className="flex items-center gap-2">
                 <Badge tone={(calibration.looErrorM ?? calibration.rmsErrorM) <= 1 ? "accent" : "warning"}>

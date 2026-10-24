@@ -4,7 +4,7 @@ import { apply, fitHomography, invert, type Mat3 } from "../../src/lib/pitch/hom
 import { LANDMARK_BY_ID, STANDARD_PITCH, type PitchSize } from "../../src/lib/pitch/landmarks";
 import type { Actor } from "../../src/server/authz/permissions";
 import { calibrationContext, saveCalibration } from "../../src/server/calibration/service";
-import { matches, videos } from "../../src/server/db/schema";
+import { calibrations, matches, videos } from "../../src/server/db/schema";
 import type { ObjectStorage } from "../../src/server/storage/s3";
 import { enqueueAnalysis } from "../../src/server/jobs/service";
 import { createMatch, getMatch } from "../../src/server/matches/service";
@@ -20,9 +20,13 @@ const PITCH_TO_IMAGE: Mat3 = fitHomography([
   { image: [0, 68], pitch: [40, 1000] },
 ]);
 
-async function validatedMatch(actor: Actor) {
+const FRAMES = [12.5, 40.0, 71.25].map((t, i) => ({ key: `frames/frame_${i}.jpg`, timeSeconds: t, width: 1920, height: 1080 }));
+
+async function validatedMatch(actor: Actor, cameraMotion: "fixed" | "moving" | null = null) {
   const match = await createMatch(db, actor, { title: "Calibration" });
   await db.insert(videos).values({
+    cameraMotion,
+    frames: FRAMES,
     orgId: actor.orgId,
     matchId: match.id,
     storageKey: `t/${randomUUID()}`,
@@ -162,5 +166,54 @@ describe("pitch calibration", () => {
     // A match's own calibration is not offered as "another match".
     const own = await calibrationContext(db, storage, owner, earlier.id);
     expect(own.reusable).toHaveLength(0);
+  });
+
+  describe("moving cameras", () => {
+    it("need all points on one of the frames shown, and the worker is told where to start", async () => {
+      const actor = await makeActor(db, "owner");
+      const match = await validatedMatch(actor, "moving");
+      const base = { pitchLength: 105, pitchWidth: 68, points: GOOD.map((id) => click(id)) };
+      await expect(saveCalibration(db, actor, match.id, base)).rejects.toMatchObject({ status: 422, message: expect.stringContaining("moving camera") });
+      await expect(saveCalibration(db, actor, match.id, { ...base, frameTimeSeconds: 33 })).rejects.toMatchObject({ status: 422 });
+
+      await saveCalibration(db, actor, match.id, { ...base, frameTimeSeconds: 40.01 });
+      expect((await getMatch(db, actor, match.id)).status).toBe("ready");
+      const job = await enqueueAnalysis(db, actor, match.id);
+      const cfg = job.config as { cameraMotion: string; calibration: { frameTimeSeconds: number } };
+      expect(cfg.cameraMotion).toBe("moving");
+      expect(cfg.calibration.frameTimeSeconds).toBe(40);
+    });
+
+    it("a calibration made before moving cameras were supported must be redone", async () => {
+      const actor = await makeActor(db, "owner");
+      const match = await validatedMatch(actor, "moving");
+      const [video] = await db.select().from(videos).where(eq(videos.matchId, match.id));
+      await db.insert(calibrations).values({
+        orgId: actor.orgId,
+        matchId: match.id,
+        videoId: video.id,
+        points: [],
+        homography: { matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1], pitch: { length: 105, width: 68 } },
+        imageWidth: 1920,
+        imageHeight: 1080,
+        rmsErrorM: 0.2,
+        looErrorM: 0.3,
+      });
+      const detail = await getMatch(db, actor, match.id);
+      expect(detail.status).toBe("needs_calibration");
+      expect(detail.calibration?.usable).toBe(false);
+      await expect(enqueueAnalysis(db, actor, match.id)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("one frame") });
+    });
+
+    it("fixed cameras keep working without a frame, and moving ones aren't offered other matches' clicks", async () => {
+      const actor = await makeActor(db, "owner");
+      const fixed = await validatedMatch(actor, "fixed");
+      await saveCalibration(db, actor, fixed.id, { pitchLength: 105, pitchWidth: 68, points: GOOD.map((id) => click(id)) });
+      expect((await getMatch(db, actor, fixed.id)).status).toBe("ready");
+      const moving = await validatedMatch(actor, "moving");
+      const ctx = await calibrationContext(db, storage, actor, moving.id);
+      expect(ctx.cameraMotion).toBe("moving");
+      expect(ctx.reusable).toHaveLength(0);
+    });
   });
 });

@@ -17,8 +17,11 @@ const FAQ: { q: string; a: ReactNode }[] = [
     q: "What kind of camera footage works?",
     a: (
       <>
-        A fixed, wide-angle camera that sees most of the pitch: on a tripod or a raised position near the halfway
-        line, without zooming or panning. Broadcast TV footage and handheld phone videos aren&apos;t supported yet.
+        Best: a fixed, wide-angle camera that sees most of the pitch, on a tripod or a raised position near the
+        halfway line. In beta: cameras that turn and zoom from one spot to follow play, such as auto-tracking
+        cameras (XbotGo, Veo and similar); we follow the camera from one frame you calibrate. TV broadcasts only
+        work for the shot you calibrate, because every cut switches camera. Handheld phone videos (the camera
+        walks around) aren&apos;t supported.
         See the <Link href="/docs#filming">filming guide</Link>.
       </>
     ),

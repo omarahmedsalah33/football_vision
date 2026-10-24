@@ -2,7 +2,14 @@
 
 Runs in its own process so a decoder or GPU crash can't take down the worker, and so the parent
 can stop it on cancellation. Progress goes to stdout as `PROGRESS <stage> <fraction>` lines; results
-go to <out_dir>/result.json and <out_dir>/tracks.jsonl.gz.
+go to <out_dir>/result.json and <out_dir>/tracks.jsonl.gz. A problem the user can fix is reported as
+one `FAILURE <code> <message>` line before exiting with status 3.
+
+Two camera modes:
+- fixed: one calibration applies to every frame; players are tracked in image space.
+- moving (pan/tilt/zoom from one spot): each frame is placed on the pitch by the camera follower
+  (see camera.py); frames it can't place are skipped, and players are tracked on the pitch plane so
+  camera movement doesn't break their identities.
 """
 
 from __future__ import annotations
@@ -16,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .camera import CameraFollower, classify_motion
 from .detector import build_detector
 from .geometry import foot_points, on_pitch, project, to_matrix
 from .metrics import WINDOW_S, expected_people, min_team_players, team_shape_windows, track_summary
@@ -24,16 +32,25 @@ from .tracker import ByteTrackTracker
 
 COLOUR_SAMPLES_PER_TRACK = 20
 MIN_TRACK_SECONDS = 2.0  # shorter tracks are noise: false detections, fragments
+CANVAS_PX_PER_M = 10.0  # moving camera: players are tracked on a top-down canvas of the pitch
+CANVAS_BOX_M = 2.5  # box size on that canvas: big enough to overlap between samples while running
+
+
+class UserFixable(Exception):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code, self.message = code, message
 
 
 def progress(stage: str, fraction: float) -> None:
     print(f"PROGRESS {stage} {fraction:.4f}", flush=True)
 
 
-def provenance(calibration: dict) -> dict:
-    """How each metric family is labelled, given the calibration quality."""
+def provenance(calibration: dict, moving: bool = False) -> dict:
+    """How each metric family is labelled, given the calibration quality. With a moving camera every
+    frame's position on the pitch is itself estimated, so positions are never labelled "measured"."""
     error = calibration.get("looErrorM") if calibration.get("looErrorM") is not None else calibration.get("rmsErrorM", 99)
-    positional = "measured" if error is not None and error <= 1.0 else "estimated"
+    positional = "measured" if error is not None and error <= 1.0 and not moving else "estimated"
     return {
         "team_width": positional,
         "team_depth": positional,
@@ -47,6 +64,50 @@ def provenance(calibration: dict) -> dict:
         "shots": "not_available",
         "xg": "not_available",
     }
+
+
+def _frames_at(video: Path, times: list[float]) -> list[np.ndarray]:
+    """Decodes the first frame at or after each time (seconds)."""
+    import av
+
+    out = []
+    with av.open(str(video)) as container:
+        stream = container.streams.video[0]
+        for t in times:
+            container.seek(int(max(0.0, t - 1.0) / stream.time_base), stream=stream, backward=True)
+            for frame in container.decode(stream):
+                if float(frame.time or 0.0) + 1e-3 >= t:
+                    out.append(frame.to_ndarray(format="rgb24"))
+                    break
+    return out
+
+
+def _duration(video: Path) -> float:
+    import av
+
+    with av.open(str(video)) as container:
+        stream = container.streams.video[0]
+        if stream.duration and stream.time_base:
+            return float(stream.duration * stream.time_base)
+        return (container.duration or 0) / 1e6
+
+
+def camera_mode(video: Path, cfg: dict) -> str:
+    """'fixed' or 'moving', from the prepare stage or, for videos checked before it recorded this,
+    by comparing frames from across the video. Undecidable videos keep the fixed-camera behaviour."""
+    mode = cfg.get("cameraMotion")
+    if mode in ("fixed", "moving"):
+        return mode
+    d = _duration(video)
+    frames = _frames_at(video, [d * p for p in (0.1, 0.3, 0.5, 0.7, 0.9)]) if d > 0 else []
+    return "moving" if classify_motion(frames) == "moving" else "fixed"
+
+
+def canvas_boxes(pitch_xy: np.ndarray, scores: np.ndarray) -> np.ndarray:
+    half = CANVAS_BOX_M / 2
+    c = pitch_xy * CANVAS_PX_PER_M
+    h = half * CANVAS_PX_PER_M
+    return np.hstack([c - h, c + h, scores[:, None]]) if len(c) else np.zeros((0, 5))
 
 
 def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
@@ -64,6 +125,10 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
     end_s = float(cfg["endSeconds"]) if cfg.get("endSeconds") is not None else None
     detector = build_detector(cfg.get("detector", {}))
     tracker = ByteTrackTracker(frame_rate=sample_fps)
+    mode = camera_mode(video, cfg)
+    moving = mode == "moving"
+    follower: CameraFollower | None = None
+    followed_frames = 0
 
     observations: dict[int, list[tuple[float, float, float]]] = defaultdict(list)
     colours: dict[int, list[np.ndarray]] = defaultdict(list)
@@ -79,6 +144,21 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
         src_w, src_h = stream.codec_context.width, stream.codec_context.height
         # The homography was fitted in calibration-image pixels; rescale if the video differs.
         scale = np.array([calibration.get("imageWidth", src_w) / src_w, calibration.get("imageHeight", src_h) / src_h])
+        if moving:
+            anchor_t = calibration.get("frameTimeSeconds")
+            if anchor_t is None:
+                raise UserFixable(
+                    "recalibrate_moving_camera",
+                    "This video was filmed with a moving camera. Open the pitch calibration again and mark all the points on one frame.",
+                )
+            anchor = _frames_at(video, [float(anchor_t)])
+            if not anchor:
+                raise UserFixable("recalibrate_moving_camera", "The calibrated frame could not be read. Calibrate the pitch again.")
+            H_video = H @ np.diag([scale[0], scale[1], 1.0])
+            try:
+                follower = CameraFollower(anchor[0], H_video, length, width, players_per_side, float(anchor_t), detector.detect(anchor[0], float(anchor_t)))
+            except ValueError as exc:
+                raise UserFixable("camera_not_followable", "The calibrated frame shows too little detail to follow the camera. Calibrate on a wider frame.") from exc
         next_t = start_s
         frame_index = 0
         if start_s > 1 and stream.time_base:
@@ -93,9 +173,28 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
             image = frame.to_ndarray(format="rgb24")
             boxes = detector.detect(image, t)
             people_per_frame.append(len(boxes))
-            tracked_xyxy, ids = tracker.update(boxes)
-            pitch_xy = project(H, foot_points(tracked_xyxy) * scale) if len(ids) else np.zeros((0, 2))
-            keep = on_pitch(pitch_xy, length, width) if len(ids) else np.zeros(0, dtype=bool)
+            if follower is not None:
+                Hf = follower.update(image, t, boxes)
+                if Hf is None:
+                    # Not placed on the pitch (cut, replay, close-up, or lines disagree): no positions.
+                    per_frame.append((t, []))
+                    frame_index += 1
+                    continue
+                followed_frames += 1
+                det_xy = project(Hf, foot_points(boxes)) if len(boxes) else np.zeros((0, 2))
+                inside = on_pitch(det_xy, length, width) if len(boxes) else np.zeros(0, dtype=bool)
+                boxes, det_xy = boxes[inside], det_xy[inside]
+                canvas = canvas_boxes(det_xy, boxes[:, 4] if len(boxes) else np.zeros(0))
+                tracked_canvas, ids = tracker.update(canvas)
+                # Back from canvas boxes to the detections they came from.
+                idx = [int(np.argmin(np.abs(canvas[:, :4] - b).sum(axis=1))) for b in tracked_canvas] if len(ids) else []
+                tracked_xyxy = boxes[idx, :4] if idx else np.zeros((0, 4))
+                pitch_xy = det_xy[idx] if idx else np.zeros((0, 2))
+                keep = np.ones(len(idx), dtype=bool)
+            else:
+                tracked_xyxy, ids = tracker.update(boxes)
+                pitch_xy = project(H, foot_points(tracked_xyxy) * scale) if len(ids) else np.zeros((0, 2))
+                keep = on_pitch(pitch_xy, length, width) if len(ids) else np.zeros(0, dtype=bool)
             frame_players = []
             for box, tid, xy, ok in zip(tracked_xyxy, ids, pitch_xy, keep):
                 if not ok:
@@ -151,10 +250,15 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
     valid_windows = [w for w in windows if w["a"] and w["b"]]
     summary = {
         "pipeline": cfg.get("pipelineVersion"),
-        "models": {"detector": detector.version, "tracker": tracker.version, "teams": "lab-median-2means-v1"},
+        "models": {
+            "detector": detector.version,
+            "tracker": tracker.version + (":pitch-canvas" if moving else ""),
+            "teams": "lab-median-2means-v1",
+            **({"camera": follower.version} if follower is not None else {}),
+        },
         "settings": {"sampleFps": sample_fps, "windowSeconds": WINDOW_S},
         "pitch": {"length": length, "width": width, "playersPerSide": players_per_side},
-        "provenance": provenance(calibration),
+        "provenance": provenance(calibration, moving),
         "quality": {
             "calibration": {"rmsErrorM": calibration.get("rmsErrorM"), "looErrorM": calibration.get("looErrorM")},
             "detection": {
@@ -173,6 +277,7 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
             },
             "teams": {**team_quality, **counts},
             "teamShape": {"windows": len(windows), "windowsWithBothTeams": len(valid_windows)},
+            "camera": follower.summary() if follower is not None else {"mode": "fixed"},
             "processingSeconds": round(time.monotonic() - started, 1),
         },
         "teamShape": windows,
@@ -186,5 +291,9 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
 
 if __name__ == "__main__":
     video_path, cfg_path, out = sys.argv[1], sys.argv[2], sys.argv[3]
-    analyse(Path(video_path), json.loads(Path(cfg_path).read_text()), Path(out))
+    try:
+        analyse(Path(video_path), json.loads(Path(cfg_path).read_text()), Path(out))
+    except UserFixable as exc:
+        print(f"FAILURE {exc.code} {exc.message}", flush=True)
+        sys.exit(3)
     print("DONE", flush=True)

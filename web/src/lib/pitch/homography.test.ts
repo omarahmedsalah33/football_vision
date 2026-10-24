@@ -69,19 +69,20 @@ describe("homography fitting", () => {
 
 describe("plausibility", () => {
   it("accepts a real camera", () => {
-    expect(() => assertPlausible(fitHomography(correspondences(SIX)), STANDARD_PITCH)).not.toThrow();
+    const pts = correspondences(SIX);
+    expect(() => assertPlausible(fitHomography(pts), pts.map((p) => p.image))).not.toThrow();
   });
 
   it("rejects a mirrored pitch", () => {
     const pts = correspondences(SIX).map((c) => ({ ...c, pitch: [STANDARD_PITCH.length - c.pitch[0], c.pitch[1]] as [number, number] }));
-    expect(() => assertPlausible(fitHomography(pts), STANDARD_PITCH)).toThrowError(CalibrationError);
+    expect(() => assertPlausible(fitHomography(pts), pts.map((p) => p.image))).toThrowError(CalibrationError);
   });
 
   it("rejects a fit that folds part of the pitch behind the camera", () => {
     // One badly misplaced click among four fits "exactly" but bends the pitch through the horizon.
     const pts = correspondences(SIX.slice(0, 4));
     pts[2] = { ...pts[2], image: [pts[2].image[0], pts[2].image[1] + 2000] };
-    expect(() => assertPlausible(fitHomography(pts), STANDARD_PITCH)).toThrowError(CalibrationError);
+    expect(() => assertPlausible(fitHomography(pts), pts.map((p) => p.image))).toThrowError(CalibrationError);
   });
 });
 
