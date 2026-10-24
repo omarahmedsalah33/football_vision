@@ -219,6 +219,7 @@ def _analyze(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: He
         "calibration": calibration,
         "sampleFps": job.config.get("sampleFps", settings.analysis_sample_fps),
         "detector": job.config.get("detector", settings.detector_config()),
+        "cameraMotion": job.config.get("cameraMotion"),
     }
     duration = float(video.get("duration_seconds") or 0) or 600.0
     _checkpoint(conn, settings, job, hb, "detect", 0.05)
@@ -227,6 +228,12 @@ def _analyze(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: He
     result = json.loads((out_dir / "result.json").read_text())
     key = tracks_key(video["storage_key"], job.id)
     storage.put_file(key, out_dir / "tracks.jsonl.gz", "application/gzip")
+    # Player photos: footage of people, stored privately next to the analysis and purged with the footage.
+    crop_keys: dict[int, str] = {}
+    for t in result["tracks"]:
+        if t.get("crop_file"):
+            crop_keys[t["track_no"]] = key.rsplit("/", 1)[0] + f"/players/{t['crop_file']}"
+            storage.put_file(crop_keys[t["track_no"]], out_dir / "crops" / t["crop_file"], "image/jpeg")
     _checkpoint(conn, settings, job, hb, "finalize", 0.97)
 
     def persist(cur) -> None:
@@ -241,10 +248,11 @@ def _analyze(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: He
         for t in result["tracks"]:
             cur.execute(
                 """insert into analysis_tracks (job_id, org_id, track_no, team, first_seconds, last_seconds,
-                                               coverage, avg_x, avg_y, distance_m, heatmap)
-                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                                               coverage, avg_x, avg_y, distance_m, heatmap, metrics, crop_key)
+                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (job.id, job.org_id, t["track_no"], t["team"], t["first_seconds"], t["last_seconds"], t["coverage"],
-                 t["avg_x"], t["avg_y"], t["distance_m"], Jsonb(t["heatmap"])),
+                 t["avg_x"], t["avg_y"], t["distance_m"], Jsonb(t["heatmap"]),
+                 Jsonb({**t.get("profile", {}), "fragments": t.get("fragments", 1)}), crop_keys.get(t["track_no"])),
             )
 
     versions = {**result["summary"]["models"], "pipeline": job.config.get("pipelineVersion")}

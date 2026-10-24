@@ -69,11 +69,26 @@ def _footage_keys(video: dict) -> list[str]:
     return [video["storage_key"], *(f["key"] for f in (video.get("frames") or []) if f.get("key"))]
 
 
+def _player_photo_keys(conn, where_sql: str, param) -> list[str]:
+    rows = _fetch(
+        conn,
+        f"""select t.crop_key from analysis_tracks t join analysis_jobs j on j.id = t.job_id
+             where j.{where_sql} and t.crop_key is not null""",
+        (param,),
+    )
+    return [r["crop_key"] for r in rows]
+
+
 def _purge_video_object(conn, storage: Purger, video: dict) -> None:
-    for key in _footage_keys(video):
+    photos = _player_photo_keys(conn, "video_id = %s", video["id"])
+    for key in [*_footage_keys(video), *photos]:
         storage.delete_object(key)
     with conn.transaction():
         conn.execute("update videos set status = 'purged' where id = %s", (video["id"],))
+        conn.execute(
+            "update analysis_tracks set crop_key = null where job_id in (select id from analysis_jobs where video_id = %s)",
+            (video["id"],),
+        )
 
 
 def purge_expired_footage(conn, storage: Purger, report: SweepReport) -> None:
@@ -107,6 +122,8 @@ def _delete_stored_objects(conn, storage: Purger, where_sql: str, param) -> None
             storage.delete_object(key)
     for r in _fetch(conn, f"select tracks_key from analysis_results where {where_sql} and tracks_key is not null", (param,)):
         storage.delete_object(r["tracks_key"])
+    for key in _player_photo_keys(conn, where_sql, param):
+        storage.delete_object(key)
 
 
 def purge_deleted_matches(conn, storage: Purger, report: SweepReport) -> None:

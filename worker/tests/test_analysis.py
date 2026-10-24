@@ -70,6 +70,7 @@ def position(team: str, i: int, t: float) -> tuple[float, float]:
 
 
 PEOPLE = [("red", i) for i in range(10)] + [("blue", i) for i in range(10)] + [("ref", 0)]
+HIDDEN, HIDDEN_FROM, HIDDEN_TO = ("red", 6), 12.0, 15.0  # longer than the tracker can bridge
 
 
 def box_at(x, y):
@@ -100,6 +101,8 @@ def synthetic_match(tmp_path_factory):
                 yi1, yi2, xi1, xi2 = int(y1), int(y2), int(x1), int(x2)
                 img[yi1 : yi1 + (yi2 - yi1) // 2, xi1:xi2] = colour  # shirt
                 img[yi1 + (yi2 - yi1) // 2 : yi2, xi1:xi2] = (20, 20, 20)  # shorts and legs
+                if (team, i) == HIDDEN and HIDDEN_FROM <= t < HIDDEN_TO:
+                    continue  # missed by the detector (e.g. behind another player): the track breaks
                 frame_boxes.append([x1, y1, x2, y2, 0.9])
             boxes[f"{round(t, 2)}"] = frame_boxes
             for p in s.encode(av.VideoFrame.from_ndarray(img, format="rgb24")):
@@ -217,4 +220,28 @@ def test_full_analyze_job_persists_results_and_consumes_allowance(conn, settings
     assert res["tracks_key"].endswith(f"/analysis/{job['id']}/tracks.jsonl.gz") and res["tracks_key"] in storage.uploaded
     n = conn.execute("select count(*) as n from analysis_tracks where job_id = %s", (job["id"],)).fetchone()["n"]
     assert n >= 21
+    rows = conn.execute("select metrics, crop_key from analysis_tracks where job_id = %s and team in ('a', 'b')", (job["id"],)).fetchall()
+    assert all(r["metrics"]["minutes"] > 0 for r in rows), "running profiles are stored"
+    assert all(r["crop_key"] and r["crop_key"] in storage.uploaded and "/players/" in r["crop_key"] for r in rows)
     assert usage(conn, job["org_id"]) == (1, 0), "a successful analysis uses one unit of the allowance"
+
+
+def test_a_player_missed_for_three_seconds_is_still_one_player(synthetic_match):
+    target = np.mean([position(*HIDDEN, t) for t in np.arange(0, SECONDS, 0.25)], axis=0)
+    a = [t for t in synthetic_match["result"]["tracks"] if t["team"] == "a"]
+    him = min(a, key=lambda t: np.hypot(t["avg_x"] - target[0], t["avg_y"] - target[1]))
+    assert him["fragments"] == 2, "the two fragments were joined"
+    assert him["last_seconds"] - him["first_seconds"] > SECONDS - 2
+    assert len(a) == 10, "still exactly ten red players"
+
+
+def test_every_player_has_a_running_profile_and_a_photo(synthetic_match):
+    players = [t for t in synthetic_match["result"]["tracks"] if t["team"] in ("a", "b")]
+    for p in players:
+        prof = p["profile"]
+        assert 0.3 < prof["minutes"] <= SECONDS / 60 + 0.01
+        assert prof["top_speed_ms"] < 3.0, "these synthetic players never run fast"
+        assert prof["sprints"] == 0
+        assert p["crop_file"], "a photo for staff to recognise the player"
+        assert (synthetic_match["dir"] / "crops" / p["crop_file"]).stat().st_size > 500
+

@@ -114,3 +114,34 @@ def test_only_one_worker_runs_maintenance_at_a_time(conn, database_url):
         assert maintenance.run_sweeps(conn, RecordingStorage()) is None
         other.execute("select pg_advisory_unlock(%s)", (maintenance.MAINTENANCE_LOCK_ID,))
     assert maintenance.run_sweeps(conn, RecordingStorage()) is not None
+
+
+def _player_photo(conn, job, key):
+    with conn.transaction():
+        conn.execute(
+            """insert into analysis_tracks (job_id, org_id, track_no, team, first_seconds, last_seconds, coverage, heatmap, crop_key)
+               values (%s, %s, 1, 'a', 0, 60, 1, '[]', %s)""",
+            (job["id"], job["org_id"], key),
+        )
+
+
+def test_player_photos_are_deleted_with_the_footage(conn):
+    job = make_job(conn, status="succeeded")
+    _player_photo(conn, job, "orgs/x/matches/y/analysis/z/players/1.jpg")
+    with conn.transaction():
+        conn.execute("update videos set status = 'validated', delete_after = now() - interval '1 day' where id = %s", (job["video_id"],))
+    storage = RecordingStorage()
+    sweep(conn, storage)
+    assert "orgs/x/matches/y/analysis/z/players/1.jpg" in storage.deleted, "photos of people are footage"
+    row = conn.execute("select crop_key, metrics from analysis_tracks where job_id = %s", (job["id"],)).fetchone()
+    assert row["crop_key"] is None, "the analysis numbers stay; the photo reference goes"
+
+
+def test_player_photos_are_deleted_when_a_match_is_purged(conn):
+    job = make_job(conn, status="succeeded")
+    _player_photo(conn, job, "orgs/x/matches/y/analysis/z/players/2.jpg")
+    with conn.transaction():
+        conn.execute("update matches set deleted_at = now() - interval '8 days' where id = %s", (job["match_id"],))
+    storage = RecordingStorage()
+    sweep(conn, storage)
+    assert "orgs/x/matches/y/analysis/z/players/2.jpg" in storage.deleted

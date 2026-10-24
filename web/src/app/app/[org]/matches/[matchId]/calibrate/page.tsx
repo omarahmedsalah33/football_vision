@@ -75,6 +75,7 @@ async function Content({ params }: { params: PageProps<"/app/[org]/matches/[matc
         initial={ctx.latest}
         reusable={ctx.reusable}
         cameraMotion={ctx.cameraMotion}
+        startsAnalysis={can(actor.role, "analysis.run")}
       />
     </>
   );

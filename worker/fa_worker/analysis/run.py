@@ -26,7 +26,8 @@ import numpy as np
 from .camera import CameraFollower, classify_motion
 from .detector import build_detector
 from .geometry import foot_points, on_pitch, project, to_matrix
-from .metrics import WINDOW_S, expected_people, min_team_players, team_shape_windows, track_summary
+from .metrics import WINDOW_S, expected_people, min_team_players, physical_profile, team_shape_windows, track_summary
+from .stitch import stitch
 from .teams import assign_teams
 from .tracker import ByteTrackTracker
 
@@ -34,6 +35,33 @@ COLOUR_SAMPLES_PER_TRACK = 20
 MIN_TRACK_SECONDS = 2.0  # shorter tracks are noise: false detections, fragments
 CANVAS_PX_PER_M = 10.0  # moving camera: players are tracked on a top-down canvas of the pitch
 CANVAS_BOX_M = 2.5  # box size on that canvas: big enough to overlap between samples while running
+CROP_HEIGHT = 160  # player photos for the report, in pixels
+
+
+def _crop(image: np.ndarray, box, all_boxes: np.ndarray) -> tuple[float, np.ndarray] | None:
+    """A photo of one player for staff to recognise: whole body in frame, nobody overlapping.
+    Returns (quality, RGB crop) or None when the view isn't clean."""
+    import cv2
+
+    h_img, w_img = image.shape[:2]
+    x1, y1, x2, y2 = (float(v) for v in box[:4])
+    bh, bw = y2 - y1, x2 - x1
+    if bh < 24 or x1 < 2 or y1 < 2 or x2 > w_img - 2 or y2 > h_img - 2:
+        return None
+    for o in all_boxes:
+        ox1, oy1, ox2, oy2 = (float(v) for v in o[:4])
+        if (ox1, oy1, ox2, oy2) == (x1, y1, x2, y2):
+            continue
+        iw = max(0.0, min(x2, ox2) - max(x1, ox1))
+        ih = max(0.0, min(y2, oy2) - max(y1, oy1))
+        if iw * ih > 0.05 * bw * bh:
+            return None
+    pad_x, pad_y = 0.25 * bw, 0.1 * bh
+    xa, ya = max(0, int(x1 - pad_x)), max(0, int(y1 - pad_y))
+    xb, yb = min(w_img, int(x2 + pad_x)), min(h_img, int(y2 + pad_y))
+    crop = image[ya:yb, xa:xb]
+    scale = CROP_HEIGHT / crop.shape[0]
+    return bh, cv2.resize(crop, (max(1, int(crop.shape[1] * scale)), CROP_HEIGHT), interpolation=cv2.INTER_AREA)
 
 
 class UserFixable(Exception):
@@ -132,6 +160,7 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
 
     observations: dict[int, list[tuple[float, float, float]]] = defaultdict(list)
     colours: dict[int, list[np.ndarray]] = defaultdict(list)
+    crops: dict[int, tuple[float, np.ndarray]] = {}
     per_frame: list[tuple[float, list[tuple[int, float, float, list[float]]]]] = []
     people_per_frame: list[int] = []
 
@@ -205,6 +234,10 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
                     c = shirt_colour(image, box)
                     if c is not None:
                         colours[int(tid)].append(c)
+                if frame_index % 4 == 0:
+                    got = _crop(image, box, tracked_xyxy)
+                    if got is not None and got[0] > crops.get(int(tid), (0.0, None))[0]:
+                        crops[int(tid)] = got
             per_frame.append((t, frame_players))
             frame_index += 1
             if frame_index % 10 == 0 and duration > 0:
@@ -225,18 +258,34 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
     team_of = {tid: ("other" if raw_teams.get(tid) is None else ("a" if raw_teams[tid] == left_cluster else "b")) for tid in long_tracks}
 
     progress("metrics", 0.9)
+    # One entry per player: fragments of the same person joined (see stitch.py).
+    chains = stitch({tid: observations[tid] for tid in long_tracks}, team_of)
+    chains.sort(key=lambda c: observations[c[0]][0][0])
     tracks = []
-    for no, tid in enumerate(sorted(long_tracks, key=lambda k: observations[k][0][0]), start=1):
-        s = track_summary(observations[tid], dt, length, width)
-        tracks.append({"track_no": no, "source_id": tid, "team": team_of[tid], **s})
-    renumber = {t["source_id"]: t["track_no"] for t in tracks}
+    renumber: dict[int, int] = {}
+    crops_dir = out_dir / "crops"
+    crops_dir.mkdir(exist_ok=True)
+    for no, chain in enumerate(chains, start=1):
+        obs = sorted((o for tid in chain for o in observations[tid]), key=lambda o: o[0])
+        s = track_summary(obs, dt, length, width)
+        profile = physical_profile(obs, dt)
+        best = max((crops[tid] for tid in chain if tid in crops), key=lambda c: c[0], default=None)
+        crop_file = None
+        if best is not None:
+            from PIL import Image
+
+            crop_file = f"{no}.jpg"
+            Image.fromarray(best[1]).save(crops_dir / crop_file, "JPEG", quality=82)
+        tracks.append({"track_no": no, "source_id": chain[0], "fragments": len(chain), "team": team_of[chain[0]], **s, "profile": profile, "crop_file": crop_file})
+        for tid in chain:
+            renumber[tid] = no
 
     shape_frames = []
     for t, players in per_frame:
         groups = {"a": [], "b": []}
         for tid, x, y, _ in players:
             team = team_of.get(tid)
-            if team in groups:
+            if team in groups and tid in renumber:
                 groups[team].append((x, y))
         shape_frames.append((t, {k: np.array(v).reshape(-1, 2) for k, v in groups.items()}))
     windows = team_shape_windows(shape_frames, length, WINDOW_S, players_per_side)
@@ -270,6 +319,7 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
             },
             "tracking": {
                 "tracks": len(tracks),
+                "fragmentsJoined": sum(t["fragments"] - 1 for t in tracks),
                 "medianTrackSeconds": float(np.median([t["last_seconds"] - t["first_seconds"] for t in tracks])) if tracks else 0.0,
                 "meanCoverage": float(np.mean([t["coverage"] for t in tracks])) if tracks else 0.0,
                 # One track per player and official is perfect (25 on a full pitch); far more means identities break up.

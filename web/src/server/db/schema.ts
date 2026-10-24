@@ -405,6 +405,36 @@ export const analysisTracks = pgTable(
     distanceM: real("distance_m"),
     // Occupancy counts on a 21 × 14 grid of 5 m cells (row-major, y then x).
     heatmap: jsonb("heatmap").notNull(),
+    // Running profile (estimated): minutes, distance, high-intensity distance, sprints, top speed,
+    // late-vs-early work rate, and how many track fragments were joined into this player.
+    metrics: jsonb("metrics").notNull().default({}),
+    // Private photo of the player for staff to recognise them; deleted with the footage.
+    cropKey: text("crop_key"),
   },
   (t) => [uniqueIndex("analysis_tracks_job_track_uq").on(t.jobId, t.trackNo), index("analysis_tracks_org_idx").on(t.orgId)],
+);
+
+// Names and shirt numbers staff give to tracked players in one analysis.
+export const playerLabels = pgTable(
+  "player_labels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => analysisJobs.id, { onDelete: "cascade" }),
+    trackNo: integer("track_no").notNull(),
+    name: text("name"),
+    shirtNumber: integer("shirt_number"),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("player_labels_job_track_uq").on(t.jobId, t.trackNo),
+    index("player_labels_org_idx").on(t.orgId),
+    check("player_labels_shirt_range", sql`${t.shirtNumber} is null or ${t.shirtNumber} between 0 and 99`),
+    check("player_labels_name_length", sql`${t.name} is null or char_length(${t.name}) between 1 and 60`),
+  ],
 );

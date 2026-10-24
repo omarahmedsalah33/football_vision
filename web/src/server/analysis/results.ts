@@ -4,6 +4,7 @@ import { assertCan, type Actor } from "../authz/permissions";
 import type { DbOrTx } from "../db/client";
 import { analysisJobs, analysisResults, analysisTracks, matches } from "../db/schema";
 import { notFound } from "../http/errors";
+import type { PlayerMetrics } from "@/lib/analysis/player-report";
 
 export type Provenance = "measured" | "estimated" | "inferred" | "not_available";
 
@@ -77,11 +78,17 @@ export async function getAnalysisResults(db: DbOrTx, actor: Actor, matchId: stri
       avgY: analysisTracks.avgY,
       distanceM: analysisTracks.distanceM,
       heatmap: analysisTracks.heatmap,
+      metrics: analysisTracks.metrics,
+      cropKey: analysisTracks.cropKey,
     })
     .from(analysisTracks)
     .where(and(eq(analysisTracks.jobId, jobId), eq(analysisTracks.orgId, actor.orgId)))
     .orderBy(asc(analysisTracks.trackNo));
-  return { summary, tracks: tracks.map((t) => ({ ...t, heatmap: t.heatmap as number[][] })), createdAt: row.createdAt };
+  return {
+    summary,
+    tracks: tracks.map((t) => ({ ...t, heatmap: t.heatmap as number[][], metrics: (t.metrics ?? {}) as PlayerMetrics })),
+    createdAt: row.createdAt,
+  };
 }
 
 export type AnalysisResultsData = Awaited<ReturnType<typeof getAnalysisResults>>;

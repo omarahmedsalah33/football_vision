@@ -144,3 +144,94 @@ def team_shape_windows(
                 entry[team] = None
         out.append(entry)
     return out
+
+
+# Speed bands used by elite clubs (approximately 19.8 and 25.2 km/h).
+HIGH_INTENSITY_MPS = 5.5
+SPRINT_MPS = 7.0
+SPRINT_MIN_S = 1.0
+
+
+def physical_profile(samples: list[tuple[float, float, float]], dt: float) -> dict:
+    """Running profile of one player from [(t, x, y)] in metres. Estimated: the speeds come from
+    tracked foot positions sampled a few times per second, smoothed over about a second."""
+    t = np.array([s[0] for s in samples])
+    xy = np.array([[s[1], s[2]] for s in samples])
+    window = max(3, int(round(1.0 / dt)) | 1)  # odd, about one second
+    # Contiguous stretches: a gap longer than a few samples is a disappearance, not running.
+    cuts = np.where(np.diff(t) > 2.5 * dt)[0] + 1
+    seg_starts = np.concatenate([[0], cuts])
+    seg_ends = np.concatenate([cuts, [len(t)]])
+
+    steps, gaps, speeds, times = [], [], [], []
+    for a, b in zip(seg_starts, seg_ends):
+        if b - a < 3:
+            continue
+        seg_xy = xy[a:b]
+        n_seg = b - a
+        k = min(window, n_seg if n_seg % 2 else n_seg - 1)
+        kernel = np.ones(k) / k
+        pad = k // 2
+        padded = np.pad(seg_xy, ((pad, pad), (0, 0)), mode="edge")
+        smooth = np.stack([np.convolve(padded[:, i], kernel, mode="valid") for i in range(2)], axis=1)
+        seg_t = t[a:b]
+        for i in range(1, len(smooth)):
+            gap = float(seg_t[i] - seg_t[i - 1])
+            step = float(np.linalg.norm(smooth[i] - smooth[i - 1]))
+            if gap <= 0 or step > MAX_SPEED_MPS * gap:
+                continue
+            steps.append(step)
+            gaps.append(gap)
+            speeds.append(step / gap)
+            times.append(float(seg_t[i]))
+        steps.append(np.nan)  # segment boundary marker for sprint runs
+        gaps.append(0.0)
+        speeds.append(0.0)
+        times.append(float(seg_t[-1]))
+
+    st, gp, sp = np.array(steps, float), np.array(gaps, float), np.array(speeds, float)
+    valid = ~np.isnan(st)
+    counted = float(gp[valid].sum())
+    distance = float(np.nansum(st))
+    hi = float(np.nansum(np.where(sp >= HIGH_INTENSITY_MPS, st, 0.0)))
+
+    sprints, run = 0, 0.0
+    for s, g, ok in zip(sp, gp, valid):
+        if ok and s >= SPRINT_MPS:
+            run += g
+        else:
+            if run >= SPRINT_MIN_S:
+                sprints += 1
+            run = 0.0
+    if run >= SPRINT_MIN_S:
+        sprints += 1
+
+    # Top speed: the fastest one-second average, so a single noisy step can't set it.
+    top = 0.0
+    n = max(1, int(round(1.0 / dt)))
+    for i in range(len(sp) - n + 1):
+        if valid[i : i + n].all():
+            top = max(top, float(sp[i : i + n].mean()))
+
+    late_vs_early = None
+    if counted >= 6 * 60:
+        stv, gpv = st[valid], gp[valid]
+        cum = np.cumsum(gpv)
+        first = cum <= counted / 3
+        last = cum > 2 * counted / 3
+        early = stv[first].sum() / max(gpv[first].sum(), 1e-6)
+        late = stv[last].sum() / max(gpv[last].sum(), 1e-6)
+        late_vs_early = float(late / early) if early > 0 else None
+
+    minutes = counted / 60
+    return {
+        "minutes": minutes,
+        "distance_m": distance,
+        "distance_per_min": distance / minutes if minutes > 0 else 0.0,
+        "hi_distance_m": hi,
+        "hi_per_min": hi / minutes if minutes > 0 else 0.0,
+        "sprints": sprints,
+        "sprints_per_10min": sprints / minutes * 10 if minutes > 0 else 0.0,
+        "top_speed_ms": top,
+        "late_vs_early": late_vs_early,
+    }

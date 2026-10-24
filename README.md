@@ -95,7 +95,10 @@ Football Vision is **early-access software**. This table only lists what is buil
 | 🧾 | **Plans and usage**: quotas reserved atomically and enforced server-side | ✅ Live |
 | 🗑️ | **Retention and deletion**: footage expiry, account deletion, workspace purge, audit log | ✅ Live |
 | 🎯 | Accuracy on real football (SoccerTrack v2 evaluation) | 🟡 Harness built, not yet run |
-| 🎬 | Video playback synced to the timeline, linking tracks to named players | 🔜 Phase 4 |
+| 🏃 | **Player reports**: physical score out of 100, strengths and weaknesses with their numbers, distance, sprints, top speed, stamina, photo, names added by staff | 🟡 Beta, tested on synthetic truth |
+| ⚡ | **Automatic start**: the analysis starts as soon as the pitch is marked | ✅ Live |
+| ⚽ | Goals, assists, shots and passes | 🔜 Needs ball tracking |
+| 🎬 | Video playback synced to the timeline | 🔜 Phase 4 |
 | 💬 | "Ask your match" assistant, grounded in stored evidence | 🔜 Phase 4 |
 | 💳 | Payments, PDF reports, expiring share links, email delivery | 🔜 Phase 5 |
 

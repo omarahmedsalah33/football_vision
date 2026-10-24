@@ -153,12 +153,12 @@ test("coach signs in, uploads footage, calibrates the pitch and gets an analysis
   // The page never scrolls sideways (it did once, when the frame strip was wider than the column).
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: `${SHOTS}/08-calibration.png`, fullPage: true });
-  await page.getByRole("button", { name: "Yes, save calibration" }).click();
+  // Saving starts the analysis: marking the pitch is the user's last step.
+  await page.getByRole("button", { name: "Yes, save and analyse" }).click();
+  await expect(matchPage.getByText("Queued", { exact: true })).toBeVisible({ timeout: 30_000 });
+  expect(await jobStatus(matchId, "analyze"), "queued without pressing Start").toBe("queued");
 
   // Analyse with the real detector (RF-DETR) and tracker.
-  await expect(matchPage.getByText("Ready", { exact: true })).toBeVisible({ timeout: 30_000 });
-  await matchPage.getByRole("button", { name: "Start analysis" }).click();
-  await expect(matchPage.getByText("Queued", { exact: true })).toBeVisible({ timeout: 30_000 });
   runWorker(900_000);
   expect(await jobStatus(matchId, "analyze"), "worker finished the analysis").toBe("succeeded");
   await expect(matchPage.getByText("Analysed", { exact: true })).toBeVisible({ timeout: 30_000 });

@@ -1,7 +1,13 @@
 import { Badge, Card } from "@/components/ui";
+import { buildReports } from "@/lib/analysis/player-report";
+import { hasStandardBoxes } from "@/lib/pitch/landmarks";
+import { playerLabelsFor, playerPhotoUrls } from "@/server/analysis/players";
 import { pageActor } from "@/server/auth/page";
+import { can } from "@/server/authz/permissions";
 import { getDb } from "@/server/db/client";
 import { getAnalysisResults, type Provenance } from "@/server/analysis/results";
+import { getStorage } from "@/server/storage/s3";
+import { PlayersPanel, type PlayerView } from "./players-panel";
 import { ResultsView } from "./results-view";
 
 const PROVENANCE_TONE = { measured: "accent", estimated: "info", inferred: "gold", not_available: "neutral" } as const;
@@ -24,12 +30,31 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
 const NOT_AVAILABLE: [string, string][] = [
   ["Formation", "Needs validation on reference matches before we show it."],
   ["Passes, shots, xG", "Needs a ball-event model validated on licensed data."],
-  ["Player names", "Never inferred from appearance; staff will link tracks to players."],
+  ["Player names", "Never inferred from faces or appearance; add them in each player's report."],
+  ["Goals, assists, tackles", "Need reliable ball tracking, still in development."],
 ];
 
 export async function AnalysisResults({ orgSlug, matchId, jobId }: { orgSlug: string; matchId: string; jobId: string }) {
   const actor = await pageActor(orgSlug);
-  const { summary, tracks } = await getAnalysisResults(getDb(), actor, matchId, jobId);
+  const db = getDb();
+  const { summary, tracks } = await getAnalysisResults(db, actor, matchId, jobId);
+  const [labels, photos] = await Promise.all([playerLabelsFor(db, actor, jobId), playerPhotoUrls(getStorage(), tracks)]);
+  const labelOf = new Map(labels.map((l) => [l.trackNo, l]));
+  const trackOf = new Map(tracks.map((t) => [t.trackNo, t]));
+  const players: PlayerView[] = buildReports(tracks, summary.pitch.length).map((r) => {
+    const t = trackOf.get(r.trackNo)!;
+    return {
+      ...r,
+      photoUrl: photos[r.trackNo] ?? null,
+      name: labelOf.get(r.trackNo)?.name ?? null,
+      shirtNumber: labelOf.get(r.trackNo)?.shirtNumber ?? null,
+      distanceM: t.metrics.distance_m ?? t.distanceM ?? 0,
+      topSpeedKmh: (t.metrics.top_speed_ms ?? 0) * 3.6,
+      sprints: t.metrics.sprints ?? 0,
+      heatmap: t.heatmap,
+    };
+  });
+  const pitchView = { length: summary.pitch.length, width: summary.pitch.width, boxes: hasStandardBoxes(summary.pitch, summary.pitch.playersPerSide) };
   const q = summary.quality;
   const calError = q.calibration.looErrorM ?? q.calibration.rmsErrorM;
   const shapeShare = q.teamShape.windows ? q.teamShape.windowsWithBothTeams / q.teamShape.windows : 0;
@@ -98,7 +123,24 @@ export async function AnalysisResults({ orgSlug, matchId, jobId }: { orgSlug: st
           </p>
         </Card>
       ) : (
-        <ResultsView summary={summary} tracks={tracks} />
+        <>
+          <PlayersPanel players={players} orgId={actor.orgId} jobId={jobId} canEdit={can(actor.role, "match.update")} pitch={pitchView} />
+          {/* Storage keys and raw profiles stay on the server. */}
+          <ResultsView
+            summary={summary}
+            tracks={tracks.map((t) => ({
+              trackNo: t.trackNo,
+              team: t.team,
+              firstSeconds: t.firstSeconds,
+              lastSeconds: t.lastSeconds,
+              coverage: t.coverage,
+              avgX: t.avgX,
+              avgY: t.avgY,
+              distanceM: t.distanceM,
+              heatmap: t.heatmap,
+            }))}
+          />
+        </>
       )}
 
       <Card className="p-6">

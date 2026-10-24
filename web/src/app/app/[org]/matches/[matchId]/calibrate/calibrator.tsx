@@ -165,6 +165,7 @@ export function Calibrator({
   initial,
   reusable,
   cameraMotion,
+  startsAnalysis = false,
 }: {
   orgId: string;
   matchId: string;
@@ -176,6 +177,8 @@ export function Calibrator({
   initial: Saved | null;
   reusable: Reusable[];
   cameraMotion: CameraMotion;
+  /** Saving also starts the analysis (for roles allowed to run one). */
+  startsAnalysis?: boolean;
 }) {
   const router = useRouter();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -543,7 +546,7 @@ export function Calibrator({
                 <p className="text-sm font-medium">Do the green lines sit on the white lines of your pitch?</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button disabled={saving} onClick={save}>
-                    {saving ? "Saving…" : "Yes, save calibration"}
+                    {saving ? "Saving…" : startsAnalysis ? "Yes, save and analyse" : "Yes, save calibration"}
                   </Button>
                 </div>
                 <p className="mt-2 text-xs text-muted">If not, select the point that&apos;s off on the drawing and click its real spot again.</p>
