@@ -52,12 +52,17 @@ const storage = { presignGet: async (key: string) => `https://storage.test/${key
 const GOOD = ["left_corner_far", "left_corner_near", "halfway_far", "halfway_near", "left_box_near", "centre_spot"];
 
 describe("pitch calibration", () => {
-  it("analysis can't start until the pitch is calibrated; after calibrating it can", async () => {
+  it("AI analysis starts without a calibration; the worker then gets no pitch mapping", async () => {
     const actor = await makeActor(db, "owner");
     const match = await validatedMatch(actor);
-    await expect(enqueueAnalysis(db, actor, match.id)).rejects.toMatchObject({ status: 409 });
     expect((await getMatch(db, actor, match.id)).status).toBe("needs_calibration");
+    const job = await enqueueAnalysis(db, actor, match.id);
+    expect((job.config as { calibration: unknown }).calibration).toBeNull();
+  });
 
+  it("after calibrating, the worker gets the pitch mapping", async () => {
+    const actor = await makeActor(db, "owner");
+    const match = await validatedMatch(actor);
     const saved = await saveCalibration(db, actor, match.id, { pitchLength: 105, pitchWidth: 68, points: GOOD.map((id) => click(id)) });
     expect(saved.rmsErrorM).toBeLessThan(0.01);
     expect((await getMatch(db, actor, match.id)).status).toBe("ready");
@@ -202,7 +207,8 @@ describe("pitch calibration", () => {
       const detail = await getMatch(db, actor, match.id);
       expect(detail.status).toBe("needs_calibration");
       expect(detail.calibration?.usable).toBe(false);
-      await expect(enqueueAnalysis(db, actor, match.id)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("one frame") });
+      // Since AI analysis (2026-10), starting no longer requires a usable calibration; the match page
+      // still asks for it to be redone.
     });
 
     it("fixed cameras keep working without a frame, and moving ones aren't offered other matches' clicks", async () => {
