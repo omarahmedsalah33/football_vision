@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
-import { apiPost, ApiError } from "@/lib/api-client";
+import { apiRequest, apiPost, ApiError } from "@/lib/api-client";
 
 const CONCURRENCY = 4;
 const MAX_ATTEMPTS = 4;
@@ -27,7 +27,7 @@ function formatBytes(n: number) {
 
 /** Uploads one part with progress; resolves with the ETag storage returned. */
 function putPart(url: string, blob: Blob, onProgress: (loaded: number) => void, xhrs: Set<XMLHttpRequest>) {
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<string | null>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhrs.add(xhr);
     xhr.open("PUT", url);
@@ -35,7 +35,7 @@ function putPart(url: string, blob: Blob, onProgress: (loaded: number) => void, 
     xhr.onload = () => {
       xhrs.delete(xhr);
       const etag = xhr.getResponseHeader("ETag");
-      if (xhr.status === 200 && etag) resolve(etag);
+      if (xhr.status === 200) resolve(etag);
       else reject(new Error(`part upload failed (${xhr.status})`));
     };
     xhr.onerror = () => {
@@ -94,10 +94,18 @@ export function Uploader({ orgId, matchId }: { orgId: string; matchId: string })
                 `/api/orgs/${orgId}/videos/${start.videoId}/parts`,
                 { partNumbers: [n] },
               );
-              const etag = await putPart(parts[0].url, blob, (l) => {
+              let etag = await putPart(parts[0].url, blob, (l) => {
                 loaded.set(n, l);
                 report();
               }, xhrs.current);
+              if (!etag) {
+                // App Storage keeps ETag private from browser JavaScript on some buckets.
+                // The app verifies this actor owns the active upload and checks the part size.
+                const receipt = await apiRequest<{ etag: string }>("GET",
+                  `/api/orgs/${orgId}/videos/${start.videoId}/parts/${n}/receipt`,
+                );
+                etag = receipt.etag;
+              }
               etags.push({ partNumber: n, etag });
               break;
             } catch (err) {

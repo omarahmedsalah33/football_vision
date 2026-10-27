@@ -1,8 +1,8 @@
 """Runs one claimed job through the pipeline stages.
 
 Two kinds of job:
-- prepare: validate the upload and extract reference frames for pitch calibration (free);
-- analyze: computer-vision analysis of the calibrated video (counted against the plan).
+- prepare: validate the upload and extract reference frames (free);
+- analyze: full-duration Gemini/Astra analysis on Modal (counted against the plan).
 
 Results are written in the same transaction that marks the job succeeded, so a failed or cancelled
 job can never leave behind results that look real.
@@ -19,6 +19,8 @@ import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
+from queue import Empty, Queue
+from uuid import uuid4
 
 import av
 from psycopg.types.json import Jsonb
@@ -29,6 +31,8 @@ from .errors import JobCancelled, JobFailure, LeaseLost
 from .queue import ClaimedJob
 from .stages.validate import validate_and_extract
 from .storage import Storage
+from .checkpoints import Checkpoints, NAME, binding, pack_result, unpack_result
+from .website_api import is_remote
 
 log = logging.getLogger("fa_worker.pipeline")
 
@@ -39,9 +43,10 @@ ANALYSIS_TIMEOUT_FACTOR = 4.0  # an analysis may take at most 4× the video leng
 class Heartbeat:
     """Renews the lease on its own connection and records cancel requests / lease loss."""
 
-    def __init__(self, settings: Settings, job_id: str):
+    def __init__(self, settings: Settings, job_id: str, api=None):
         self._settings = settings
         self._job_id = job_id
+        self._api = api
         self._stop = threading.Event()
         self.lost = threading.Event()
         self.cancel_requested = threading.Event()
@@ -58,6 +63,12 @@ class Heartbeat:
     def _run(self) -> None:
         interval = max(1.0, self._settings.lease_seconds / 3)
         try:
+            if self._api is not None:
+                while not self._stop.wait(interval):
+                    flag = queue.heartbeat(self._api, self._job_id, self._settings.worker_id, self._settings.lease_seconds)
+                    if flag:
+                        self.cancel_requested.set()
+                return
             with queue.connect(self._settings.database_url) as conn:
                 while not self._stop.wait(interval):
                     flag = queue.heartbeat(conn, self._job_id, self._settings.worker_id, self._settings.lease_seconds)
@@ -82,6 +93,13 @@ def _checkpoint(conn, settings: Settings, job: ClaimedJob, hb: Heartbeat, stage:
 
 
 def _load_video(conn, job: ClaimedJob) -> dict:
+    if is_remote(conn):
+        row = conn.video
+        if row is None or row.get("size_bytes") is None:
+            raise JobFailure("video_missing", "The uploaded video could not be found.")
+        if row.get("match_deleted_at") or row.get("org_deleted_at"):
+            raise JobCancelled()
+        return row
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(
             """select v.storage_key, v.size_bytes, v.status, v.duration_seconds, m.deleted_at as match_deleted_at
@@ -143,21 +161,32 @@ def _prepare(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: He
              Jsonb(stored), camera_motion, job.video_id, job.org_id),
         )
 
-    if not queue.complete(conn, job.id, settings.worker_id, model_versions(["download", "validate", "frames"]), persist_results=persist):
+    versions = model_versions(["download", "validate", "frames"])
+    if is_remote(conn):
+        conn.request("complete_prepare", jobId=job.id,
+                     info={key: getattr(info,key) for key in ("container","video_codec","duration_seconds","width","height","fps")},
+                     frames=stored, cameraMotion=camera_motion, models=versions)
+    elif not queue.complete(conn, job.id, settings.worker_id, versions, persist_results=persist):
         raise LeaseLost()
     log.info("prepare succeeded", extra={"job_id": job.id, "video": asdict(info)})
 
 
-def _run_analysis_child(conn, settings: Settings, job: ClaimedJob, hb: Heartbeat, video_path: Path, cfg: dict, out_dir: Path, timeout_s: float) -> None:
+def _run_analysis_child(conn, settings: Settings, job: ClaimedJob, hb: Heartbeat, video_path: Path, cfg: dict, out_dir: Path, timeout_s: float, checkpoints=None) -> None:
     """Runs fa_worker.analysis.run in a child process, relaying progress and honouring cancellation."""
     out_dir.mkdir(parents=True, exist_ok=True)
     cfg_path = out_dir / "config.json"
     cfg_path.write_text(json.dumps(cfg))
-    cmd = [sys.executable, "-I", "-m", "fa_worker.analysis.run", str(video_path), str(cfg_path), str(out_dir)]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=Path(__file__).resolve().parents[1])
+    # Isolated Python ignores PYTHONPATH (including Modal's /opt). Add only our trusted source root,
+    # never the video/work directory, before executing the package.
+    cmd = [sys.executable, "-I", "-c",
+           "import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module('fa_worker.analysis.run',run_name='__main__')",
+           str(Path(__file__).resolve().parents[1]), str(video_path), str(cfg_path), str(out_dir)]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=Path(__file__).resolve().parents[1])
     deadline = time.monotonic() + timeout_s
     last_report = 0.0
+    current_progress = 0.05
     stderr_tail: list[str] = []
+    lines = Queue()
 
     def drain_stderr() -> None:
         # Keep the pipe from filling up; keep only a short tail for the logs.
@@ -167,15 +196,44 @@ def _run_analysis_child(conn, settings: Settings, job: ClaimedJob, hb: Heartbeat
 
     reader = threading.Thread(target=drain_stderr, daemon=True)
     reader.start()
+    def drain_stdout():
+        for line in proc.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    stdout_reader = threading.Thread(target=drain_stdout, daemon=True)
+    stdout_reader.start()
     failure: tuple[str, str] | None = None
     try:
-        for line in proc.stdout:
+        while True:
+            if hb.cancel_requested.is_set():
+                raise JobCancelled()
+            if hb.lost.is_set():
+                raise LeaseLost()
+            if time.monotonic() > deadline:
+                raise JobFailure("analysis_timeout", "The analysis took too long and was stopped.")
+            try:
+                line = lines.get(timeout=0.5)
+            except Empty:
+                continue
+            if line is None:
+                break
+            if line.startswith("CHECKPOINT "):
+                name = line.strip().split(" ", 1)[1]
+                if checkpoints is None or not NAME.fullmatch(name) or not name.startswith("detections-"):
+                    raise ValueError("Invalid child checkpoint")
+                _checkpoint(conn, settings, job, hb, "checkpoint", current_progress)
+                checkpoints.publish(out_dir / "checkpoints" / name)
+                _checkpoint(conn, settings, job, hb, "detect", current_progress)
+                proc.stdin.write("saved\n")
+                proc.stdin.flush()
             if line.startswith("FAILURE "):
                 _, code, message = line.rstrip("\n").split(" ", 2)
                 failure = (code, message)
             if line.startswith("PROGRESS ") and time.monotonic() - last_report > 3:
                 _, stage, fraction = line.split()
-                _checkpoint(conn, settings, job, hb, stage, float(fraction))
+                current_progress = float(fraction)
+                _checkpoint(conn, settings, job, hb, stage, current_progress)
                 last_report = time.monotonic()
             if hb.cancel_requested.is_set():
                 raise JobCancelled()
@@ -190,6 +248,10 @@ def _run_analysis_child(conn, settings: Settings, job: ClaimedJob, hb: Heartbeat
         raise
     finally:
         reader.join(timeout=5)
+        stdout_reader.join(timeout=5)
+        proc.stdin.close()
+        proc.stdout.close()
+        proc.stderr.close()
     if code == 3 and failure is not None:
         raise JobFailure(failure[0], failure[1])
     if code != 0:
@@ -203,15 +265,20 @@ def tracks_key(storage_key: str, job_id: str) -> str:
 
 
 def _analyze(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: Heartbeat, workdir: Path) -> None:
+    from .video_pipeline import run
+    video = _load_video(conn, job)
+    if video["status"] != "validated":
+        raise JobFailure("video_not_ready", "The video has not been checked yet.")
+    return run(conn,storage,settings,job,hb,workdir,video,_checkpoint)
+
+
+def _analyze_tracking_legacy(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: Heartbeat, workdir: Path) -> None:
     video = _load_video(conn, job)
     if video["status"] != "validated":
         raise JobFailure("video_not_ready", "The video has not been checked yet.")
     calibration = job.config.get("calibration")
     if not calibration or not calibration.get("homography"):
         raise JobFailure("invalid_job", "This analysis has no pitch calibration.")
-
-    _checkpoint(conn, settings, job, hb, "download", 0.02)
-    path = storage.download(video["storage_key"], workdir / "source", int(video["size_bytes"]))
 
     out_dir = workdir / "analysis"
     cfg = {
@@ -221,11 +288,26 @@ def _analyze(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: He
         "detector": job.config.get("detector", settings.detector_config()),
         "cameraMotion": job.config.get("cameraMotion"),
     }
+    saved = Checkpoints(conn, storage, settings, job, video["storage_key"], binding(job, video, cfg))
+    _checkpoint(conn, settings, job, hb, "resume", 0.01)
+    restored = saved.restore(out_dir / "checkpoints",
+                             lambda: _checkpoint(conn, settings, job, hb, "resume", 0.01))
+    complete = next((p for p in restored if p.name.startswith("result-")), None)
     duration = float(video.get("duration_seconds") or 0) or 600.0
-    _checkpoint(conn, settings, job, hb, "detect", 0.05)
-    _run_analysis_child(conn, settings, job, hb, path, cfg, out_dir, timeout_s=60 + duration * ANALYSIS_TIMEOUT_FACTOR)
+    if complete:
+        unpack_result(complete, out_dir)
+    else:
+        _checkpoint(conn, settings, job, hb, "download", 0.02)
+        path = storage.download(video["storage_key"], workdir / "source", int(video["size_bytes"]))
+        cfg["reuseDetections"] = True
+        _checkpoint(conn, settings, job, hb, "detect", 0.05)
+        _run_analysis_child(conn, settings, job, hb, path, cfg, out_dir,
+                            timeout_s=60 + duration * ANALYSIS_TIMEOUT_FACTOR, checkpoints=saved)
+        _checkpoint(conn, settings, job, hb, "checkpoint", 0.96)
+        saved.publish(pack_result(out_dir, out_dir / "checkpoints"))
 
     result = json.loads((out_dir / "result.json").read_text())
+    _checkpoint(conn, settings, job, hb, "finalize", 0.97)
     key = tracks_key(video["storage_key"], job.id)
     storage.put_file(key, out_dir / "tracks.jsonl.gz", "application/gzip")
     # Player photos: footage of people, stored privately next to the analysis and purged with the footage.
@@ -263,10 +345,11 @@ def _analyze(conn, storage: Storage, settings: Settings, job: ClaimedJob, hb: He
 
 def process(conn, storage: Storage, settings: Settings, job: ClaimedJob) -> str:
     """Processes a claimed job and returns its final status for logging."""
-    workdir = settings.work_dir / job.id
+    # A stale lease owner must never remove a newer attempt's local files.
+    workdir = settings.work_dir / f"{job.id}-{job.attempts}-{uuid4().hex}"
     ctx = {"job_id": job.id, "attempt": job.attempts, "kind": job.kind}
     try:
-        with Heartbeat(settings, job.id) as hb:
+        with Heartbeat(settings, job.id, api=conn if is_remote(conn) else None) as hb:
             if job.kind == "analyze":
                 _analyze(conn, storage, settings, job, hb, workdir)
             else:
@@ -291,8 +374,10 @@ def process(conn, storage: Storage, settings: Settings, job: ClaimedJob) -> str:
         status = queue.fail(
             conn, job.id, settings.worker_id, failure.code, failure.user_message,
             retryable=failure.retryable, attempts=job.attempts, max_attempts=job.max_attempts, on_terminal=reject,
+            reject_video=failure.reject_video,
         )
-        log.warning("job failed", extra={**ctx, "code": failure.code, "result": status})
+        log.warning("job failed id=%s kind=%s attempt=%s code=%s result=%s",
+                    job.id, job.kind, job.attempts, failure.code, status)
         return status or "lease_lost"
     except Exception:
         log.exception("unexpected error", extra=ctx)
@@ -303,4 +388,14 @@ def process(conn, storage: Storage, settings: Settings, job: ClaimedJob) -> str:
         )
         return status or "lease_lost"
     finally:
+        try:
+            # Queued/running jobs retain their batches; terminal jobs remove them.
+            if is_remote(conn):
+                conn.request("cleanup", jobId=job.id)
+            else:
+                from .maintenance import purge_job_checkpoints
+                purge_job_checkpoints(conn, storage, job.id)
+        except Exception:
+            # Metadata remains for the next maintenance sweep, never an untracked orphan.
+            log.warning("checkpoint cleanup deferred", extra=ctx)
         shutil.rmtree(workdir, ignore_errors=True)

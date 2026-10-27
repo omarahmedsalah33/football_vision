@@ -28,7 +28,7 @@ export async function workspaceOverview(db: DbOrTx, actor: Actor, now = new Date
     kind: org?.kind ?? "personal",
     planId: ent.planId,
     planName: plan?.name ?? ent.planId,
-    analyses: { used: usage.used, inProgress: usage.reserved, limit, unlimited: limit >= UNLIMITED },
+    analyses: { used: usage.used, inProgress: usage.reserved, limit, unlimited: ent.unlimitedAnalyses || limit >= UNLIMITED },
     members: { count: members?.n ?? 1, limit: ent.limits.maxMembers },
   };
 }

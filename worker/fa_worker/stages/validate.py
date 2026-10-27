@@ -8,6 +8,7 @@ only that child; the job then fails with a safe message.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -52,6 +53,9 @@ def probe_file(path: str, frames_dir: str | None = None) -> dict:
             stream = streams[0]
             stream.thread_type = "AUTO"
             ctx = stream.codec_context
+            # Shared hosts may advertise hundreds of cores; AUTO otherwise exhausts the
+            # isolated decoder's address-space budget even for a valid H.264 upload.
+            ctx.thread_count = 2
             fps = float(stream.average_rate) if stream.average_rate else 0.0
             if stream.duration is not None and stream.time_base:
                 duration = float(stream.duration * stream.time_base)
@@ -118,7 +122,16 @@ def _limit_resources() -> None:  # pragma: no cover - POSIX only
 
 
 def run_probe(path: Path, timeout_seconds: int, frames_dir: Path | None = None) -> dict:
-    cmd = [sys.executable, "-I", "-m", "fa_worker.stages.validate", str(path)]
+    # Modal mounts this package as source, not an installed distribution. Keep isolated mode,
+    # but explicitly allow ONLY our trusted source root (never the uploaded file's directory).
+    root = Path(__file__).resolve().parents[2]
+    entry = (
+        "import sys,json;sys.path.insert(0,sys.argv.pop(1));"
+        "from fa_worker.stages.validate import _limit_resources,probe_file;"
+        "_limit_resources() if sys.platform!='win32' else None;"
+        "print(json.dumps(probe_file(sys.argv[1],sys.argv[2] if len(sys.argv)>2 else None)))"
+    )
+    cmd = [sys.executable, "-I", "-c", entry, str(root), str(path)]
     if frames_dir is not None:
         frames_dir.mkdir(parents=True, exist_ok=True)
         cmd.append(str(frames_dir))
@@ -127,8 +140,12 @@ def run_probe(path: Path, timeout_seconds: int, frames_dir: Path | None = None) 
             cmd,
             capture_output=True,
             timeout=timeout_seconds,
-            cwd=Path(__file__).resolve().parents[2],
-            preexec_fn=_limit_resources if sys.platform != "win32" else None,
+            cwd=root,
+            env={**{k:os.environ[k] for k in ("PATH","LD_LIBRARY_PATH","NIX_LD","NIX_LD_LIBRARY_PATH")
+                    if k in os.environ},
+                 "OPENBLAS_NUM_THREADS":"1","OMP_NUM_THREADS":"1","MKL_NUM_THREADS":"1"},
+            # Set limits in the fresh interpreter, not preexec_fn: the parent loads PyAV
+            # and heartbeat threads, making Python work between fork and exec unsafe.
         )
     except subprocess.TimeoutExpired as exc:
         raise JobFailure("probe_timeout", "The video took too long to read. It may be damaged.", reject_video=True) from exc

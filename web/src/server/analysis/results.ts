@@ -1,10 +1,13 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { assertCan, type Actor } from "../authz/permissions";
 import type { DbOrTx } from "../db/client";
 import { analysisJobs, analysisResults, analysisTracks, matches } from "../db/schema";
 import { notFound } from "../http/errors";
 import type { PlayerMetrics } from "@/lib/analysis/player-report";
+import { videoEventsSchema } from "@/lib/analysis/video-events";
+import { getStorage } from "../storage/s3";
+import { videos } from "../db/schema";
 
 export type Provenance = "measured" | "estimated" | "inferred" | "not_available";
 
@@ -12,6 +15,7 @@ const shape = z.object({ width: z.number(), depth: z.number(), line_height: z.nu
 
 /** The analysis summary written by the worker. Parsed defensively: it crosses a process boundary. */
 export const summarySchema = z.object({
+  videoEvents: videoEventsSchema.optional(),
   pipeline: z.string().nullable().optional(),
   models: z.record(z.string(), z.string()),
   settings: z.object({ sampleFps: z.number(), windowSeconds: z.number() }),
@@ -51,6 +55,10 @@ export type AnalysisSummary = z.infer<typeof summarySchema>;
 /** Results of a succeeded analysis in the actor's organisation, or null if it has none. */
 export async function getAnalysisResults(db: DbOrTx, actor: Actor, matchId: string, jobId: string) {
   assertCan(actor, "report.read");
+  const [latest] = await db.select({ id: analysisJobs.id }).from(analysisJobs)
+    .where(and(eq(analysisJobs.orgId, actor.orgId), eq(analysisJobs.matchId, matchId), eq(analysisJobs.kind, "analyze")))
+    .orderBy(desc(analysisJobs.createdAt), desc(analysisJobs.id)).limit(1);
+  if (!latest || latest.id !== jobId) throw notFound("Current analysis");
   const [row] = await db
     .select({ summary: analysisResults.summary, createdAt: analysisResults.createdAt })
     .from(analysisResults)
@@ -62,6 +70,7 @@ export async function getAnalysisResults(db: DbOrTx, actor: Actor, matchId: stri
         eq(analysisResults.matchId, matchId),
         eq(analysisResults.orgId, actor.orgId),
         eq(matches.orgId, actor.orgId),
+        isNull(matches.deletedAt),
         eq(analysisJobs.status, "succeeded"),
       ),
     );
@@ -92,3 +101,28 @@ export async function getAnalysisResults(db: DbOrTx, actor: Actor, matchId: stri
 }
 
 export type AnalysisResultsData = Awaited<ReturnType<typeof getAnalysisResults>>;
+
+/** Missing/temporarily unavailable footage must not hide retry/cancel controls. */
+export async function optionalMediaUrl(key: string, contentType: string, ttl = 600) {
+  try {
+    return await getStorage().presignGet(key, contentType, ttl);
+  } catch (error) {
+    const code = Number((error as { code?: unknown })?.code);
+    if (code === 404 || code === 410 || code === 409) {
+      console.warn("Analysis media unavailable", { code });
+      return null;
+    }
+    throw error;
+  }
+}
+
+/** Authorize through the succeeded result before signing this match's private footage. */
+export async function getAnalysisVideoUrl(db: DbOrTx, actor: Actor, matchId: string, jobId: string) {
+  await getAnalysisResults(db, actor, matchId, jobId);
+  const [row] = await db.select({ key: videos.storageKey, container: videos.container }).from(videos)
+    .innerJoin(analysisJobs, eq(analysisJobs.videoId, videos.id))
+    .where(and(eq(analysisJobs.id, jobId), eq(analysisJobs.orgId, actor.orgId),
+      eq(videos.orgId, actor.orgId), eq(videos.matchId, matchId), eq(videos.status,"validated"),
+      or(isNull(videos.deleteAfter),gt(videos.deleteAfter,new Date()))));
+  return row ? optionalMediaUrl(row.key, row.container?.includes("webm") ? "video/webm" : "video/mp4", 3600) : null;
+}

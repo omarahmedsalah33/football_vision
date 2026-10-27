@@ -15,6 +15,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from .website_api import is_remote
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,8 @@ class ClaimedJob:
 
 
 def connect(database_url: str) -> psycopg.Connection:
+    if not database_url:
+        raise RuntimeError("Database connections are disabled for the website-API worker.")
     return psycopg.connect(database_url, row_factory=dict_row, autocommit=False)
 
 
@@ -113,6 +116,8 @@ def claim(conn: psycopg.Connection, worker_id: str, lease_seconds: int) -> Claim
 
 def heartbeat(conn: psycopg.Connection, job_id: str, worker_id: str, lease_seconds: int) -> bool | None:
     """Extends the lease. Returns the cancel flag, or None when the lease was lost."""
+    if is_remote(conn):
+        return conn.request("heartbeat", jobId=job_id)["cancelRequested"]
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(
             """update analysis_jobs
@@ -127,6 +132,8 @@ def heartbeat(conn: psycopg.Connection, job_id: str, worker_id: str, lease_secon
 
 def report_progress(conn: psycopg.Connection, job_id: str, worker_id: str, stage: str, progress: float) -> bool | None:
     """Records stage/progress. Returns the cancel flag, or None when the lease was lost."""
+    if is_remote(conn):
+        return conn.request("progress", jobId=job_id, stage=stage, progress=progress)["cancelRequested"]
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(
             """update analysis_jobs set stage = %s, progress = %s
@@ -199,9 +206,12 @@ def fail(
     attempts: int,
     max_attempts: int,
     on_terminal=None,
+    reject_video=False,
 ) -> str | None:
     """Re-queues a retryable failure with exponential backoff, otherwise fails the job and releases
     its reservation. Returns the resulting status, or None if the lease was already lost."""
+    if is_remote(conn):
+        return conn.request("fail", jobId=job_id, code=code, retryable=retryable, rejectVideo=reject_video)["status"]
     with conn.transaction(), conn.cursor() as cur:
         if retryable and attempts < max_attempts:
             cur.execute(
@@ -224,6 +234,8 @@ def fail(
 
 
 def cancel(conn: psycopg.Connection, job_id: str, worker_id: str) -> bool:
+    if is_remote(conn):
+        return conn.request("cancel", jobId=job_id)["status"] == "cancelled"
     with conn.transaction(), conn.cursor() as cur:
         row = _finalize(cur, job_id, worker_id, "cancelled")
         if row is None:

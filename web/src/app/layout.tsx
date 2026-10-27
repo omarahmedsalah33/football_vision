@@ -1,6 +1,8 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Barlow_Condensed, Inter, JetBrains_Mono } from "next/font/google";
+import { headers } from "next/headers";
+import { clerkPublicConfig } from "@/lib/clerk-config";
 import "./globals.css";
 
 // Brand typography: primary (headings, architectural), secondary (body/UI), special (data).
@@ -22,13 +24,15 @@ export const metadata: Metadata = {
     "Professional-grade football analysis, made accessible to every team, academy and player. Upload match footage and get insight you can check against the video.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const clerkConfig = clerkPublicConfig(await headers());
   return (
     <html lang="en" className={`${inter.variable} ${barlow.variable} ${jetbrains.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         {/* dynamic: renders per request so Clerk's scripts receive the CSP nonce. */}
         <ClerkProvider
           dynamic
+          {...clerkConfig}
           appearance={{
             variables: {
               colorPrimary: "#d9f67d",

@@ -106,6 +106,7 @@ export const matches = pgTable(
     teamId: uuid("team_id").references(() => teams.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     opponentName: text("opponent_name"),
+    sevenAside: jsonb("seven_a_side").$type<import("../../lib/seven-a-side").SevenAsideExperience>(),
     playedOn: date("played_on"),
     cameraType: cameraType("camera_type").notNull().default("fixed_wide"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),

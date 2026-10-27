@@ -33,7 +33,7 @@ const ACTION_LABEL: Record<string, string> = {
   "billing.plan_changed": "Plan changed",
 };
 
-function Meter({ label, used, limit, unit, extra }: { label: string; used: number; limit: number; unit?: string; extra?: string }) {
+function Meter({ label, used, limit, unit, extra, unlimited = false }: { label: string; used: number; limit: number; unit?: string; extra?: string; unlimited?: boolean }) {
   const pct = Math.min(100, limit > 0 ? (used / limit) * 100 : 0);
   return (
     <div>
@@ -41,10 +41,10 @@ function Meter({ label, used, limit, unit, extra }: { label: string; used: numbe
         <p className="text-sm text-muted">{label}</p>
         <p className="font-data text-sm">
           {used}
-          {unit} <span className="text-muted">/ {limit}{unit}</span>
+          {unit} <span className="text-muted">/ {unlimited ? "∞" : limit}{unit}</span>
         </p>
       </div>
-      <div
+      {!unlimited && <div
         role="meter"
         aria-label={label}
         aria-valuemin={0}
@@ -53,7 +53,7 @@ function Meter({ label, used, limit, unit, extra }: { label: string; used: numbe
         className="mt-2 h-2 overflow-hidden rounded-full bg-bg"
       >
         <div className={`h-full ${pct >= 100 ? "bg-gold" : "bg-mindaro"}`} style={{ width: `${pct}%` }} />
-      </div>
+      </div>}
       {extra && <p className="mt-1 text-xs text-muted">{extra}</p>}
     </div>
   );
@@ -108,6 +108,7 @@ async function Settings({ params }: { params: PageProps<"/app/[org]/settings">["
             <Meter
               label="Analyses this month"
               used={usage.analyses.used + usage.analyses.inProgress}
+              unlimited={usage.analyses.unlimited}
               limit={usage.analyses.limit}
               extra={usage.analyses.inProgress ? `${usage.analyses.inProgress} in progress. Failed or cancelled analyses don't count.` : "Failed or cancelled analyses don't count."}
             />

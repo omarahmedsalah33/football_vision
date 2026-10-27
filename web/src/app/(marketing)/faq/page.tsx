@@ -18,10 +18,7 @@ const FAQ: { q: string; a: ReactNode }[] = [
     a: (
       <>
         Best: a fixed, wide-angle camera that sees most of the pitch, on a tripod or a raised position near the
-        halfway line. In beta: cameras that turn and zoom from one spot to follow play, such as auto-tracking
-        cameras (XbotGo, Veo and similar); we follow the camera from one frame you calibrate. TV broadcasts only
-        work for the shot you calibrate, because every cut switches camera. Handheld phone videos (the camera
-        walks around) aren&apos;t supported.
+        halfway line. Other footage, such as auto-tracking cameras, TV broadcasts or handheld phone video, may miss actions or mix up players, and we can&apos;t promise accuracy on any recording.
         See the <Link href="/docs#filming">filming guide</Link>.
       </>
     ),

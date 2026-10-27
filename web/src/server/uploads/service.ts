@@ -51,7 +51,7 @@ export async function startUpload(
   // Early, non-authoritative check so users are not asked to upload gigabytes they cannot analyse.
   // The authoritative check is the atomic reservation when the analysis is queued.
   const usage = await getUsage(db, actor.orgId, usagePeriodStart());
-  if (usage.used + usage.reserved >= ent.limits.monthlyAnalyses) {
+  if (!ent.unlimitedAnalyses && usage.used + usage.reserved >= ent.limits.monthlyAnalyses) {
     throw quotaExceeded("Your plan's monthly analysis allowance is used up.");
   }
 
@@ -88,6 +88,23 @@ async function loadOwnUpload(db: DbOrTx, actor: Actor, videoId: string): Promise
     .where(and(eq(videos.id, videoId), eq(videos.orgId, actor.orgId)));
   if (!video || video.createdBy !== actor.userId) throw notFound("Upload");
   return video;
+}
+
+export async function uploadPartReceipt(
+  db: DbOrTx, storage: ObjectStorage, actor: Actor, videoId: string, partNumber: number,
+) {
+  const video = await loadOwnUpload(db, actor, videoId);
+  if (video.status !== "uploading" || !video.multipartUploadId) throw conflict("This upload is no longer active.");
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > video.partCount) {
+    throw invalidInput("Part number out of range.");
+  }
+  if (!storage.uploadPartReceipt) throw conflict("Storage must expose the ETag response header to this browser.");
+  return {
+    etag: await storage.uploadPartReceipt(
+      video.storageKey, video.multipartUploadId, partNumber,
+      partLength(video.declaredSizeBytes, video.partSizeBytes, video.partCount, partNumber),
+    ),
+  };
 }
 
 export async function presignParts(
@@ -149,7 +166,10 @@ export async function completeUpload(
     await storage.completeMultipartUpload(
       video.storageKey,
       video.multipartUploadId,
-      [...input.parts].sort((a, b) => a.partNumber - b.partNumber),
+      [...input.parts].sort((a, b) => a.partNumber - b.partNumber).map((part) => ({
+        ...part,
+        sizeBytes: partLength(video.declaredSizeBytes, video.partSizeBytes, video.partCount, part.partNumber),
+      })),
     );
   } catch (err) {
     // Either a genuine failure or an earlier completion; the HEAD below decides.

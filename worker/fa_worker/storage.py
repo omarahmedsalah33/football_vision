@@ -16,6 +16,15 @@ CHUNK = 8 * 1024 * 1024
 class Storage(Protocol):
     def download(self, key: str, dest: Path, expected_size: int) -> Path: ...
     def put_file(self, key: str, path: Path, content_type: str) -> None: ...
+    def delete_object(self, key: str) -> None: ...
+    def abort_multipart_upload(self, key: str, upload_id: str) -> None: ...
+
+
+def get_storage(settings: Settings) -> Storage:
+    if settings.storage_provider == "replit":
+        from .replit_storage import ReplitStorage
+        return ReplitStorage(settings)
+    return S3Storage(settings)
 
 
 class S3Storage:

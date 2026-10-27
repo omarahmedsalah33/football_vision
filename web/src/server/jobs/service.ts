@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { assertCan, type Actor } from "../authz/permissions";
 import { getEntitlements, releaseAnalysis, reserveAnalysis, usagePeriodStart } from "../billing/entitlements";
 import type { DbOrTx } from "../db/client";
-import { analysisJobs, calibrations, matches, videos } from "../db/schema";
+import { analysisJobs, analysisResults, analysisTracks, calibrations, matches, videos } from "../db/schema";
 import { conflict, notFound, quotaExceeded } from "../http/errors";
 
 export type JobRow = typeof analysisJobs.$inferSelect;
@@ -84,12 +84,13 @@ export async function enqueuePrepare(db: DbOrTx, actor: Actor, videoId: string):
  * analysis is already active it is returned and no quota is reserved. Quota reservation and job
  * creation commit together or not at all.
  */
-export async function enqueueAnalysis(db: DbOrTx, actor: Actor, matchId: string, now = new Date()): Promise<JobRow> {
+export async function enqueueAnalysis(db: DbOrTx, actor: Actor, matchId: string, now = new Date(),
+  engine: "llm" = "llm", playerTracking = false): Promise<JobRow> {
   assertCan(actor, "analysis.run");
   try {
     return await db.transaction(async (tx) => {
       const [match] = await tx
-        .select({ id: matches.id })
+        .select({ id: matches.id, sevenAside: matches.sevenAside })
         .from(matches)
         .where(and(eq(matches.id, matchId), eq(matches.orgId, actor.orgId), isNull(matches.deletedAt)));
       if (!match) throw notFound("Match");
@@ -108,17 +109,13 @@ export async function enqueueAnalysis(db: DbOrTx, actor: Actor, matchId: string,
         .where(and(eq(calibrations.orgId, actor.orgId), eq(calibrations.videoId, video.id)))
         .orderBy(desc(calibrations.createdAt))
         .limit(1);
-      if (!calibration) throw conflict("Calibrate the pitch before starting analysis.");
-      if (video.cameraMotion === "moving" && calibration.frameTimeSeconds == null) {
-        throw conflict("This video was filmed with a moving camera. Calibrate the pitch again, marking all points on one frame.");
-      }
 
       const existing = await findActiveJob(tx, actor.orgId, video.id, "analyze");
       if (existing) return existing;
 
       const ent = await getEntitlements(tx, actor.orgId, now);
       const period = usagePeriodStart(now);
-      if (!(await reserveAnalysis(tx, actor.orgId, period, ent.limits.monthlyAnalyses))) {
+      if (!(await reserveAnalysis(tx, actor.orgId, period, ent.limits.monthlyAnalyses, ent.unlimitedAnalyses))) {
         throw quotaExceeded("Your plan's monthly analysis allowance is used up.");
       }
 
@@ -134,12 +131,21 @@ export async function enqueueAnalysis(db: DbOrTx, actor: Actor, matchId: string,
           createdBy: actor.userId,
           // Snapshot of everything the worker needs; it never reads billing or calibration state itself.
           config: {
-            pipelineVersion: PIPELINE_VERSION.analyze,
+            pipelineVersion: engine === "llm" && !playerTracking ? "action-first-v1" : "llm-video-v1",
+            engine,
+            playerTracking,
+            reviewStrategy: match.sevenAside && !playerTracking ? "selective" : "all",
+            matchFormat: match.sevenAside ? "seven_a_side" : "standard",
+            ...(!playerTracking && engine === "llm" ? { gameStatsVersion: 1 } : {}),
+            ...(!playerTracking && engine === "llm" ? { photoSelectionVersion: 1, reportFormat: "gold-v1" } : {}),
+            ...(!playerTracking && engine === "llm" ? { optimizationVersion: 1, reviewStrategy: "focused" } : {}),
+            ...(!playerTracking && engine === "llm" ? { discoveryConcurrency: 10 } : {}),
+            ...(!playerTracking && engine === "llm" ? { parallelPostprocessingVersion: 1 } : {}),
             maxDurationSeconds: ent.limits.maxVideoDurationSeconds,
             cameraType: "fixed_wide",
             // "fixed" | "moving" | "unknown" | null (checked before this was recorded): the worker decides.
             cameraMotion: video.cameraMotion,
-            calibration: {
+            calibration: calibration ? {
               id: calibration.id,
               frameTimeSeconds: calibration.frameTimeSeconds,
               homography: calibration.homography,
@@ -147,10 +153,20 @@ export async function enqueueAnalysis(db: DbOrTx, actor: Actor, matchId: string,
               imageHeight: calibration.imageHeight,
               rmsErrorM: calibration.rmsErrorM,
               looErrorM: calibration.looErrorM,
-            },
+            } : null,
           },
         })
         .returning();
+      // Regeneration replaces the report, even if the subsequent run fails.
+      // Keep operational job records, not previous user-visible results.
+      const previous = await tx.select({ id: analysisResults.jobId }).from(analysisResults)
+        .where(and(eq(analysisResults.orgId, actor.orgId), eq(analysisResults.matchId, matchId)));
+      if (previous.length) {
+        await tx.delete(analysisTracks).where(and(eq(analysisTracks.orgId, actor.orgId),
+          inArray(analysisTracks.jobId, previous.map(p => p.id))));
+        await tx.delete(analysisResults).where(and(eq(analysisResults.orgId, actor.orgId),
+          eq(analysisResults.matchId, matchId)));
+      }
       return job;
     });
   } catch (err) {

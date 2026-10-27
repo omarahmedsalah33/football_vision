@@ -25,6 +25,7 @@ import numpy as np
 
 from .camera import CameraFollower, classify_motion
 from .detector import build_detector
+from .detection_cache import DetectionCache
 from .geometry import foot_points, on_pitch, project, to_matrix
 from .metrics import WINDOW_S, expected_people, min_team_players, physical_profile, team_shape_windows, track_summary
 from .stitch import stitch
@@ -150,7 +151,17 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
     # Optional window (seconds) for evaluation runs; production analyses the whole video.
     start_s = float(cfg.get("startSeconds", 0.0))
     end_s = float(cfg["endSeconds"]) if cfg.get("endSeconds") is not None else None
-    detector = build_detector(cfg.get("detector", {}))
+    def publish_detection(path):
+        print(f"CHECKPOINT {path.name}", flush=True)
+        if sys.stdin.readline().strip() != "saved":
+            raise RuntimeError("Detection checkpoint was not saved")
+
+    cache_dir = out_dir / "checkpoints"
+    detector = DetectionCache(
+        lambda: build_detector(cfg.get("detector", {})), cache_dir,
+        sorted(cache_dir.glob("detections-*.json.gz")) if cfg.get("reuseDetections") else (),
+        publish_detection if cfg.get("reuseDetections") else None,
+    )
     tracker = ByteTrackTracker(frame_rate=sample_fps)
     mode = camera_mode(video, cfg)
     moving = mode == "moving"
@@ -247,6 +258,8 @@ def analyse(video: Path, cfg: dict, out_dir: Path) -> dict:
                 span = (end_s or duration) - start_s
                 progress("detect", min(0.85, 0.05 + 0.8 * (t - start_s) / max(span, 1e-6)))
 
+    # Save the last short batch before any team/metric computation can fail.
+    detector.flush()
     progress("teams", 0.87)
     dt = 1.0 / sample_fps
     long_tracks = {tid for tid, obs in observations.items() if obs[-1][0] - obs[0][0] >= MIN_TRACK_SECONDS}

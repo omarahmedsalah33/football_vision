@@ -25,7 +25,9 @@ class ByteTrackTracker:
         import trackers
 
         self._sv = sv
-        lost = max(1, int(round(frame_rate * lost_seconds)))
+        # trackers 2.6 defines this parameter in 30-fps frames, then scales it
+        # internally by frame_rate. Multiplying by frame_rate here scaled twice.
+        lost = max(1, int(round(30 * lost_seconds)))
         self._tracker = trackers.ByteTrackTracker(
             lost_track_buffer=lost,
             frame_rate=frame_rate,

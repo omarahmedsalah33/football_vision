@@ -12,6 +12,7 @@ export const log = pino({
       "*.url", // presigned URLs carry signatures
       "*.urls",
       "req.headers.authorization",
+      "req.headers.x-worker-storage-token",
       "req.headers.cookie",
     ],
     censor: "[redacted]",

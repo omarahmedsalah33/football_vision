@@ -23,6 +23,7 @@ export function NewMatchForm({ orgId, orgSlug }: { orgId: string; orgSlug: strin
         title: text("title"),
         opponentName: text("opponentName"),
         playedOn: text("playedOn"),
+        format: form.get("format") === "standard" ? "standard" : "seven_a_side",
       });
       router.push(`/app/${orgSlug}/matches/${id}`);
     } catch (err) {
@@ -46,9 +47,19 @@ export function NewMatchForm({ orgId, orgSlug }: { orgId: string; orgSlug: strin
           Date played <span className="font-normal text-muted">(optional)</span>
           <input name="playedOn" type="date" className={input} />
         </label>
+        <fieldset>
+          <legend className="text-sm font-medium">Match format</legend>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {([["seven_a_side", "7-a-side", "Name up to seven players per team and get player stat cards."], ["standard", "Standard", "Full-size match without a named line-up."]] as const).map(([v, l, d]) => (
+              <label key={v} className="flex cursor-pointer gap-3 rounded-lg border border-border bg-surface-2 p-3 text-sm has-[:checked]:border-mindaro">
+                <input type="radio" name="format" value={v} defaultChecked={v === "seven_a_side"} className="mt-1" />
+                <span><span className="block font-medium">{l}</span><span className="text-muted">{d}</span></span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <p className="rounded-lg border border-border bg-surface-2 p-3 text-sm text-muted">
-          Analysis currently supports footage from a <strong className="text-fg">fixed, wide-angle camera</strong>{" "}
-          that shows most of the pitch. Broadcast and handheld footage are not supported yet.
+          Fixed, elevated, wide recordings that show most of the pitch give the best results. Other footage may work less well, and we cannot promise every recording will be analysed accurately.
         </p>
         {error && (
           <p role="alert" className="text-sm text-danger">

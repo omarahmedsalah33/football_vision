@@ -9,9 +9,12 @@ export async function register() {
   const state = await migrationState(getDb());
   if (state.upToDate) return;
 
+  const replitManaged = process.env.DATABASE_SCHEMA_MANAGEMENT === "replit";
   const message =
-    `Database schema is behind this build: ${state.applied} of ${state.expected} migrations applied. ` +
-    "Run `npm run db:migrate` before starting the app.";
+    `Database schema is behind this build: ${state.applied} of ${state.expected} required ${replitManaged ? "columns present" : "migrations applied"}. ` +
+    (replitManaged
+      ? "Apply the development schema, then use Replit Publish to update production."
+      : "Run `npm run db:migrate` before starting the app.");
   // In production, refuse to serve traffic against the wrong schema; in development, be loud.
   if (process.env.NODE_ENV === "production") throw new Error(message);
   log.error({ ...state }, message);

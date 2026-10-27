@@ -63,7 +63,7 @@ export async function usageSummary(db: DbOrTx, actor: Actor, now = new Date()) {
     paidActive: ent.paidActive,
     limits: ent.limits,
     period,
-    analyses: { used: usage.used, inProgress: usage.reserved, limit: ent.limits.monthlyAnalyses },
+    analyses: { used: usage.used, inProgress: usage.reserved, limit: ent.limits.monthlyAnalyses, unlimited: ent.unlimitedAnalyses },
     storage: { bytes: Number(storage.bytes), videos: storage.count },
     members: { count: members.n, limit: ent.limits.maxMembers },
   };

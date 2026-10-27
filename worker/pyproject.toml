@@ -13,10 +13,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pip-audit>=2.7"]
+# CPU overlay rendering; detector/tracker dependencies run only in the Modal GPU image.
+tracking = ["opencv-python-headless>=4.12"]
 # Computer vision. Install PyTorch for your platform first (CUDA build from download.pytorch.org),
 # then `pip install -e ".[cv]"`. RF-DETR's standard sizes are Apache-2.0; the PML-licensed
 # "rfdetr_plus" models are deliberately not used.
-cv = ["rfdetr>=1.11,<2", "supervision>=0.29", "trackers>=2.6,<3"]
+cv = ["rfdetr>=1.11,<2", "supervision>=0.29", "trackers>=2.6,<3", "scipy>=1.11", "opencv-python-headless>=4.12"]
 # Accuracy evaluation on SoccerTrack v2 (streams multi-GB JSON).
 eval = ["ijson>=3.3", "scipy>=1.11"]
 

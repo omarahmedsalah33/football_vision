@@ -12,7 +12,7 @@ from pathlib import Path
 from . import maintenance, queue
 from .config import Settings, load_env_file
 from .pipeline import process
-from .storage import S3Storage
+from .storage import get_storage
 
 log = logging.getLogger("fa_worker")
 
@@ -21,7 +21,7 @@ MAINTENANCE_INTERVAL_SECONDS = 600
 
 def run(settings: Settings, stop: threading.Event, *, once: bool = False) -> None:
     """Processes jobs until stopped. With `once`, exits as soon as the queue is empty."""
-    storage = S3Storage(settings)
+    storage = get_storage(settings)
     settings.work_dir.mkdir(parents=True, exist_ok=True)
     log.info("worker started", extra={"worker_id": settings.worker_id})
     last_maintenance = 0.0

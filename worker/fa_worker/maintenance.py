@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 import psycopg
+from .video_outputs import output_keys
 
 log = logging.getLogger("fa_worker.maintenance")
 
@@ -20,6 +21,40 @@ MAINTENANCE_LOCK_ID = 7_310_442
 STALE_UPLOAD_HOURS = 24
 DELETED_GRACE_DAYS = 7
 BATCH = 100
+
+
+def purge_job_checkpoints(conn, storage: Purger, job_id) -> None:
+    """Hold the terminal job row locked until private retry artifacts have been removed."""
+    from types import SimpleNamespace
+    from .checkpoints import Checkpoints, FIELD
+
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute(
+            """select j.id, j.config, v.storage_key
+                 from analysis_jobs j join videos v on v.id = j.video_id
+                where j.id = %s and j.status not in ('queued', 'running')
+                  and j.config ? '_workerCheckpoints'
+                for update of j""", (job_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return
+        saved = Checkpoints(None, storage, None, SimpleNamespace(id=str(row["id"]), config=row["config"]),
+                            row["storage_key"], "")
+        for entry in saved.entries:
+            storage.delete_object(entry["key"])
+        cur.execute("update analysis_jobs set config = config - %s where id = %s", (FIELD, job_id))
+
+
+def purge_terminal_checkpoints(conn, storage: Purger, report) -> None:
+    rows = _fetch(conn, """select id from analysis_jobs
+                           where status not in ('queued', 'running') and config ? '_workerCheckpoints'
+                           limit %s""", (BATCH,))
+    for row in rows:
+        try:
+            purge_job_checkpoints(conn, storage, row["id"])
+        except Exception as exc:
+            report.errors.append(f"purge checkpoint {row['id']}: {type(exc).__name__}")
 
 
 class Purger(Protocol):
@@ -76,10 +111,15 @@ def _player_photo_keys(conn, where_sql: str, param) -> list[str]:
              where j.{where_sql} and t.crop_key is not null""",
         (param,),
     )
-    return [r["crop_key"] for r in rows]
+    keys = [r["crop_key"] for r in rows]
+    for job in _fetch(conn,f"select j.id,j.org_id,j.match_id,j.config from analysis_jobs j where j.{where_sql}",(param,)):
+        keys.extend(output_keys(job,photos_only=True))
+    return list(dict.fromkeys(keys))
 
 
 def _purge_video_object(conn, storage: Purger, video: dict) -> None:
+    for row in _fetch(conn, "select id from analysis_jobs where video_id = %s", (video["id"],)):
+        purge_job_checkpoints(conn, storage, row["id"])
     photos = _player_photo_keys(conn, "video_id = %s", video["id"])
     for key in [*_footage_keys(video), *photos]:
         storage.delete_object(key)
@@ -111,6 +151,10 @@ def purge_expired_footage(conn, storage: Purger, report: SweepReport) -> None:
 
 def _delete_stored_objects(conn, storage: Purger, where_sql: str, param) -> None:
     """Deletes every stored object of a match or organisation: footage, frames and analysis tracks."""
+    for row in _fetch(conn, f"select id,org_id,match_id,config from analysis_jobs where {where_sql}", (param,)):
+        for key in output_keys(row):
+            storage.delete_object(key)
+        purge_job_checkpoints(conn, storage, row["id"])
     for v in _fetch(
         conn,
         f"select id, storage_key, frames, status, multipart_upload_id from videos where {where_sql} and status not in ('purged', 'aborted', 'rejected')",
@@ -131,7 +175,7 @@ def purge_deleted_matches(conn, storage: Purger, report: SweepReport) -> None:
         conn,
         """select m.id from matches m
             where m.deleted_at < now() - make_interval(days => %s)
-              and not exists (select 1 from analysis_jobs j where j.match_id = m.id and j.status = 'running')
+              and not exists (select 1 from analysis_jobs j where j.match_id = m.id and j.status in ('queued', 'running'))
             limit %s""",
         (DELETED_GRACE_DAYS, BATCH),
     )
@@ -150,7 +194,7 @@ def purge_deleted_orgs(conn, storage: Purger, report: SweepReport) -> None:
         conn,
         """select o.id from organizations o
             where o.deleted_at < now() - make_interval(days => %s)
-              and not exists (select 1 from analysis_jobs j where j.org_id = o.id and j.status = 'running')
+              and not exists (select 1 from analysis_jobs j where j.org_id = o.id and j.status in ('queued', 'running'))
             limit %s""",
         (DELETED_GRACE_DAYS, BATCH),
     )
@@ -173,6 +217,7 @@ def run_sweeps(conn: psycopg.Connection, storage: Purger) -> SweepReport | None:
     report = SweepReport()
     try:
         abort_stale_uploads(conn, storage, report)
+        purge_terminal_checkpoints(conn, storage, report)
         purge_expired_footage(conn, storage, report)
         purge_deleted_matches(conn, storage, report)
         purge_deleted_orgs(conn, storage, report)

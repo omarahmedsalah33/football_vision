@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { DbOrTx } from "../db/client";
 import { plans, subscriptions, usagePeriods } from "../db/schema";
+import { hasUnlimitedTrial } from "./trial-exceptions";
 
 export const planLimitsSchema = z.object({
   monthlyAnalyses: z.number().int().min(0),
@@ -17,6 +18,7 @@ export type PlanLimits = z.infer<typeof planLimitsSchema>;
 
 export type Entitlements = {
   planId: string;
+  unlimitedAnalyses: boolean;
   /** Whether the paid plan is currently in force; otherwise the free plan applies. */
   paidActive: boolean;
   limits: PlanLimits;
@@ -40,7 +42,7 @@ export async function getEntitlements(db: DbOrTx, orgId: string, now = new Date(
   const [plan] = await db.select().from(plans).where(eq(plans.id, planId));
   if (!plan) throw new Error(`Plan ${planId} is not configured`);
   const merged = { ...(plan.limits as object), ...(inForce ? (sub.limitOverrides as object) : {}) };
-  return { planId, paidActive: inForce, limits: planLimitsSchema.parse(merged) };
+  return { planId, paidActive: inForce, unlimitedAnalyses: await hasUnlimitedTrial(db, orgId), limits: planLimitsSchema.parse(merged) };
 }
 
 /** Usage periods are calendar months (UTC) until billing anchors exist. Returns YYYY-MM-01. */
@@ -61,7 +63,7 @@ export async function getUsage(db: DbOrTx, orgId: string, periodStart: string) {
  * single statement, so concurrent requests cannot both take the last unit. Returns false when the
  * allowance is exhausted. Must run in the same transaction that creates the job.
  */
-export async function reserveAnalysis(tx: DbOrTx, orgId: string, periodStart: string, limit: number): Promise<boolean> {
+export async function reserveAnalysis(tx: DbOrTx, orgId: string, periodStart: string, limit: number, unlimited = false): Promise<boolean> {
   await tx.insert(usagePeriods).values({ orgId, periodStart }).onConflictDoNothing();
   const updated = await tx
     .update(usagePeriods)
@@ -70,7 +72,7 @@ export async function reserveAnalysis(tx: DbOrTx, orgId: string, periodStart: st
       and(
         eq(usagePeriods.orgId, orgId),
         eq(usagePeriods.periodStart, periodStart),
-        sql`${usagePeriods.analysesUsed} + ${usagePeriods.analysesReserved} < ${limit}`,
+        unlimited ? sql`true` : sql`${usagePeriods.analysesUsed} + ${usagePeriods.analysesReserved} < ${limit}`,
       ),
     )
     .returning({ orgId: usagePeriods.orgId });

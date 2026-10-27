@@ -10,6 +10,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../env";
+import { ReplitStorage } from "./replit";
 
 export const PRESIGN_TTL_SECONDS = 15 * 60;
 
@@ -17,7 +18,8 @@ export interface ObjectStorage {
   createMultipartUpload(key: string): Promise<string>;
   /** URL for one part; the exact byte length is part of the signature. */
   presignUploadPart(key: string, uploadId: string, partNumber: number, contentLength: number): Promise<string>;
-  completeMultipartUpload(key: string, uploadId: string, parts: { partNumber: number; etag: string }[]): Promise<void>;
+  uploadPartReceipt?(key: string, uploadId: string, partNumber: number, contentLength: number): Promise<string>;
+  completeMultipartUpload(key: string, uploadId: string, parts: { partNumber: number; etag: string; sizeBytes?: number }[]): Promise<void>;
   abortMultipartUpload(key: string, uploadId: string): Promise<void>;
   headObjectSize(key: string): Promise<number | null>;
   readRange(key: string, start: number, endInclusive: number): Promise<Uint8Array>;
@@ -138,13 +140,17 @@ let storage: ObjectStorage | undefined;
 export function getStorage(): ObjectStorage {
   if (!storage) {
     const e = env();
+    if (e.STORAGE_PROVIDER === "replit") {
+      storage = new ReplitStorage();
+      return storage;
+    }
     storage = new S3Storage({
       endpoint: e.S3_ENDPOINT,
       publicEndpoint: e.S3_PUBLIC_ENDPOINT,
       region: e.S3_REGION,
-      bucket: e.S3_BUCKET,
-      accessKeyId: e.S3_ACCESS_KEY_ID,
-      secretAccessKey: e.S3_SECRET_ACCESS_KEY,
+      bucket: e.S3_BUCKET!,
+      accessKeyId: e.S3_ACCESS_KEY_ID!,
+      secretAccessKey: e.S3_SECRET_ACCESS_KEY!,
       forcePathStyle: e.S3_FORCE_PATH_STYLE,
     });
   }

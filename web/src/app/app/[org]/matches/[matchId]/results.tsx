@@ -6,9 +6,12 @@ import { listPlayers, myPlayer, trackLinks } from "@/server/players/service";
 import { pageActor } from "@/server/auth/page";
 import { can } from "@/server/authz/permissions";
 import { getDb } from "@/server/db/client";
-import { getAnalysisResults, type Provenance } from "@/server/analysis/results";
+import { videoEventsSchema } from "@/lib/analysis/video-events";
+import { getAnalysisResults, getAnalysisVideoUrl, optionalMediaUrl, type Provenance } from "@/server/analysis/results";
 import { getStorage } from "@/server/storage/s3";
+import { getSevenAside } from "@/server/matches/seven-a-side";
 import { PlayersPanel, type PlayerView } from "./players-panel";
+import { VideoStatistics } from "./video-statistics";
 import { ResultsView } from "./results-view";
 
 const PROVENANCE_TONE = { measured: "accent", estimated: "info", inferred: "gold", not_available: "neutral" } as const;
@@ -35,10 +38,24 @@ const NOT_AVAILABLE: [string, string][] = [
   ["Goals, assists, tackles", "Need reliable ball tracking, still in development."],
 ];
 
-export async function AnalysisResults({ orgSlug, matchId, jobId }: { orgSlug: string; matchId: string; jobId: string }) {
+export async function AnalysisResults({ orgSlug, matchId, jobId, matchTitle = "Football match" }: {
+  orgSlug: string; matchId: string; jobId: string; matchTitle?: string;
+}) {
   const actor = await pageActor(orgSlug);
   const db = getDb();
   const { summary, tracks } = await getAnalysisResults(db, actor, matchId, jobId);
+  const rawEvents = summary.videoEvents;
+  if (rawEvents) {
+    const videoEvents = videoEventsSchema.parse(rawEvents);
+    const [sourceUrl, photos, experience] = await Promise.all([
+      getAnalysisVideoUrl(db, actor, matchId, jobId),
+      Promise.all(videoEvents.catalog.map(async (c) => [c.id, c.photoKey ? await optionalMediaUrl(c.photoKey, "image/jpeg", 600) : null] as const)),
+      getSevenAside(db, actor, matchId),
+    ]);
+    return <VideoStatistics data={videoEvents} sourceUrl={sourceUrl} photoUrls={Object.fromEntries(photos)}
+      sevenAside={{ orgId: actor.orgId, matchId, jobId, matchTitle,
+        initialExperience: experience, canEdit: can(actor.role, "match.update"), canShare: can(actor.role, "report.share") }} />;
+  }
   const [labels, photos, roster, me, links] = await Promise.all([
     playerLabelsFor(db, actor, jobId),
     playerPhotoUrls(getStorage(), tracks),

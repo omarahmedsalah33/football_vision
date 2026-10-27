@@ -1,13 +1,17 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkPublicConfig } from "./lib/clerk-config";
 
 // Clerk's proxy makes the session available to auth() and sets the CSP. It deliberately does not
 // gate routes by path: every page and API handler checks identity and membership itself
 // (src/server/auth), so authorization never depends on URL matching.
 
 // Browsers upload video parts straight to object storage, so its origin must be allowed.
-const storageOrigin = process.env.S3_PUBLIC_ENDPOINT ? new URL(process.env.S3_PUBLIC_ENDPOINT).origin : undefined;
+const storageOrigin = process.env.STORAGE_PROVIDER === "replit"
+  ? "https://storage.googleapis.com"
+  : process.env.S3_PUBLIC_ENDPOINT ? new URL(process.env.S3_PUBLIC_ENDPOINT).origin : undefined;
 
-export default clerkMiddleware({
+export default clerkMiddleware(() => {}, (req) => ({
+  ...clerkPublicConfig(req.headers),
   contentSecurityPolicy: {
     // Strict CSP: per-request nonce + 'strict-dynamic'. Modern browsers then ignore host
     // allowlists and 'unsafe-inline' for scripts; 'unsafe-eval' is only added in development.
@@ -15,14 +19,16 @@ export default clerkMiddleware({
     directives: {
       "connect-src": storageOrigin ? [storageOrigin] : [],
       "img-src": ["data:", "blob:", ...(storageOrigin ? [storageOrigin] : [])],
-      "media-src": ["blob:", ...(storageOrigin ? [storageOrigin] : [])],
-      "frame-ancestors": ["'none'"],
+      "media-src": ["'self'", "blob:", "https://storage.googleapis.com", ...(storageOrigin ? [storageOrigin] : [])],
+      "frame-ancestors": process.env.NODE_ENV === "production"
+        ? ["'none'"]
+        : ["'self'", "https://replit.com", "https://*.replit.dev"],
       "object-src": ["'none'"],
       "base-uri": ["'self'"],
       "form-action": ["'self'"],
     },
   },
-});
+}));
 
 export const config = {
   matcher: [

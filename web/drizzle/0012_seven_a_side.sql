@@ -1,0 +1,1 @@
+ALTER TABLE "matches" ADD COLUMN "seven_a_side" jsonb;

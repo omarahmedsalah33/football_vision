@@ -13,6 +13,7 @@ export const createMatchInput = z.object({
   opponentName: z.string().trim().max(120).optional(),
   playedOn: z.iso.date().optional(),
   teamId: z.string().uuid().optional(),
+  format: z.enum(["seven_a_side", "standard"]).optional(),
 });
 
 export type MatchStatus =
@@ -79,6 +80,8 @@ export async function createMatch(db: DbOrTx, actor: Actor, input: z.infer<typeo
       playedOn: input.playedOn ?? null,
       teamId: input.teamId ?? null,
       createdBy: actor.userId,
+      sevenAside: input.format === "standard" ? null : { version: 1,
+        teamAName: "Team A", teamBName: "Team B", players: [], assignmentJobId: null, assignments: {} },
     })
     .returning();
   return match;
@@ -212,6 +215,7 @@ export async function getMatch(db: DbOrTx, actor: Actor, matchId: string) {
   return {
     id: match.id,
     title: match.title,
+    sevenAside: match.sevenAside,
     opponentName: match.opponentName,
     playedOn: match.playedOn,
     cameraType: match.cameraType,

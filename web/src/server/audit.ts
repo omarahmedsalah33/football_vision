@@ -12,6 +12,8 @@ export type AuditAction =
   | "member.removed"
   | "member.left"
   | "match.deleted"
+  | "match.lineup_updated"
+  | "match.player_reference_linked"
   | "player.created"
   | "player.updated"
   | "player.archived"

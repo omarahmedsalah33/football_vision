@@ -1,0 +1,70 @@
+import { z } from "zod";
+
+const verdict = z.enum(["supported", "contradicted", "inconclusive"]);
+const counts = { passes: z.number().int().nonnegative(), carries: z.number().int().nonnegative(),
+  shots: z.number().int().nonnegative(), goals: z.number().int().nonnegative() };
+const referenceBox = z.array(z.number().min(0).max(1000)).length(4);
+export const videoEventsSchema = z.object({
+  version: z.literal(1),
+  durationSeconds: z.number().positive(),
+  completedWindows: z.number().int().positive(),
+  totalWindows: z.number().int().positive(),
+  policy: z.string(),
+  models: z.record(z.string(), z.string()),
+  tracking: z.object({
+    enabled: z.literal(true), method: z.string(), sampleFps: z.number().positive(),
+    trackCount: z.number().int().nonnegative(), sceneCount: z.number().int().positive(),
+    anchoredTracks: z.number().int().nonnegative(), duplicateReferencesRemoved: z.number().int().nonnegative(),
+    supportedEvents: z.number().int().nonnegative(), unresolvedEvents: z.number().int().nonnegative(),
+    limitations: z.string(),
+  }).optional(),
+  catalog: z.array(z.object({ id: z.string(), description: z.string(), photoKey: z.string().nullable(),
+    photoSelection: z.object({ policyVersion:z.literal(1), sourceSeconds:z.number().nonnegative().optional(),
+      faceVisible:z.boolean(), faceClarity:z.enum(["clear","partial","not_visible"]),
+      bodyComplete:z.boolean(), note:z.string() }).optional(),
+    jerseyNumber: z.string().nullable().optional(), referenceSeconds: z.number().nonnegative().optional(),
+    references: z.array(z.object({ sourceSeconds: z.number().nonnegative(), box: referenceBox })).max(3).optional(),
+  })),
+  players: z.array(z.object({ id: z.string(), ...counts, pending: z.number().int().nonnegative(),
+    perMinute: z.array(z.object({ minute: z.number().int().nonnegative(), ...counts })) })),
+  events: z.array(z.object({
+    id: z.string(), actorId: z.string().nullable(), type: z.enum(["pass", "carry", "shot", "unclear_kick", "take_on", "tackle", "interception", "recovery", "duel"]),
+    start: z.number().nonnegative(), end: z.number().nonnegative(), key: z.number().nonnegative(),
+    outcome: z.string(), evidence: z.string(), uncertainty: z.string(),
+    identityConfidence: z.string(), eventConfidence: z.string(), evidenceLevel: z.string(),
+    canonicalEventId: z.string().optional(), duplicateOf: z.string().optional(),
+    actorBox: referenceBox.nullable().optional(),
+    actorAssignment: z.object({
+      status: z.enum(["assigned", "unresolved", "challenged"]), method: z.literal("targeted_video"),
+      evidence: z.string().optional(), reason: z.string().optional(),
+      referenceSeconds: z.number().nonnegative().optional(), referenceBox: referenceBox.optional(),
+      matchBasis: z.string().optional(),
+    }).optional(),
+    geminiActorId: z.string().nullable().optional(),
+    tracking: z.object({
+      trackId: z.string().nullable(), status: z.enum(["supported", "conflict", "unanchored", "not_visible"]),
+      suggestedActorId: z.string().nullable(),
+    }).optional(),
+    included: z.boolean(), matchIncluded: z.boolean().optional(), goalAccepted: z.boolean(), exclusionReasons: z.array(z.string()),
+    review: z.object({ action: verdict, identity: verdict, outcome: verdict, comment: z.string(),
+      bestFrameSeconds: z.number().nonnegative().optional() }).nullable(),
+  })),
+  audit: z.object({ reviewed: z.number().int().nonnegative(), candidates: z.number().int().nonnegative(),
+    limit: z.number().int().nonnegative(), actionFirst: z.boolean().optional(),
+    catalogPolicy: z.string().optional(), catalogScope: z.literal("actors_of_detected_actions").optional(),
+    reviewAllCanonicalActions: z.boolean().optional(), duplicateProposals: z.number().int().nonnegative().optional(),
+    reviewStrategy: z.enum(["all", "selective", "focused"]).optional(),
+    optimizationVersion:z.literal(1).optional(),
+    discoveryConcurrency:z.number().int().min(1).max(10).optional(),
+    gameStatsVersion: z.literal(1).optional(),
+    photoSelection:z.object({ version:z.literal(1), windows:z.number().int().nonnegative(),
+      playersWithPhoto:z.number().int().nonnegative() }).optional(),
+    identity: z.object({
+      targetedGroups: z.number().int().nonnegative(), lateLinkGroups: z.number().int().nonnegative(),
+      assignedActions: z.number().int().nonnegative(), unresolvedActions: z.number().int().nonnegative(),
+      referenceViews: z.number().int().nonnegative(),
+      unresolvedReferences: z.array(z.object({ sourceSeconds: z.number().nonnegative(), reason: z.string() })).max(100),
+    }).optional(),
+  }),
+});
+export type VideoEvents = z.infer<typeof videoEventsSchema>;

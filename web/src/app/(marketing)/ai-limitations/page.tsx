@@ -45,7 +45,7 @@ export default function AiLimitationsPage() {
           <li>We don&apos;t identify players by face or appearance. Your staff link tracked players to names.</li>
           <li>We don&apos;t detect passes, shots, tackles or xG yet. We won&apos;t until those models are validated.</li>
           <li>We don&apos;t analyse live: only recordings, after the match.</li>
-          <li>Handheld footage isn&apos;t supported. TV broadcasts only work for the shot you calibrate.</li>
+          <li>Fixed, elevated, wide recordings work best. Handheld, broadcast or close-up footage may miss actions or mix up players, and we can&apos;t promise accuracy on any recording.</li>
           <li>We don&apos;t judge a player&apos;s potential, character, health or future. Nobody should, from video alone.</li>
         </ul>
 
